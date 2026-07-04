@@ -12,6 +12,7 @@ import {
   ListBullets,
   MagnifyingGlass,
   Play,
+  SignOut,
   SquaresFour,
   TelevisionSimple,
   UserCircle,
@@ -22,6 +23,7 @@ import {
   filterCollections,
   getUnreadCount,
 } from "./lib/dashboard.js";
+import { apiRequest, SessionExpiredError } from "./lib/api.js";
 
 const fallbackPoster = "/assets/generated/movie-poster-1.png";
 
@@ -138,7 +140,60 @@ function Sidebar({ activeSection, alertsCount, onSelect }) {
   );
 }
 
-function Topbar({ profile, query, onQueryChange }) {
+function LoadingScreen({ message = "Loading dashboard..." }) {
+  return (
+    <div className="login-shell">
+      <div className="login-panel compact">
+        <Logo />
+        <p>{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ error, onLogin, submitting }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  function submit(event) {
+    event.preventDefault();
+    onLogin({ email, password });
+  }
+
+  return (
+    <div className="login-shell">
+      <form className="login-panel" onSubmit={submit}>
+        <Logo />
+        <label>
+          <span>Email</span>
+          <input
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            type="email"
+            value={email}
+          />
+        </label>
+        <label>
+          <span>Password</span>
+          <input
+            autoComplete="current-password"
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+        </label>
+        {error ? <div className="login-error">{error}</div> : null}
+        <button className="primary-action" disabled={submitting} type="submit">
+          {submitting ? "Signing in..." : "Sign in"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function Topbar({ profile, query, onQueryChange, onLogout }) {
   return (
     <header className="topbar">
       <label className="search-box">
@@ -149,15 +204,21 @@ function Topbar({ profile, query, onQueryChange }) {
           placeholder="Search shows, movies, episodes..."
         />
       </label>
-      <button className="profile-menu" type="button">
-        {profile.image ? (
-          <img src={profile.image} alt="" />
-        ) : (
-          <UserCircle size={38} weight="duotone" />
-        )}
-        <span>{profile.name || "gunner"}</span>
-        <CaretDown size={16} />
-      </button>
+      <div className="topbar-actions">
+        <button className="profile-menu" type="button">
+          {profile.image ? (
+            <img src={profile.image} alt="" />
+          ) : (
+            <UserCircle size={38} weight="duotone" />
+          )}
+          <span>{profile.name || "gunner"}</span>
+          <CaretDown size={16} />
+        </button>
+        <button className="logout-button" onClick={onLogout} type="button">
+          <SignOut size={18} />
+          <span>Logout</span>
+        </button>
+      </div>
     </header>
   );
 }
@@ -472,33 +533,50 @@ function FocusSection({ activeSection, activity, collections, stats, alerts, onO
 
 export function App() {
   const [dashboard, setDashboard] = useState(fallbackData);
+  const [authUser, setAuthUser] = useState(null);
+  const [appState, setAppState] = useState("checking");
   const [query, setQuery] = useState("");
   const [activeSection, setActiveSection] = useState("home");
   const [activeAlertTab, setActiveAlertTab] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
   const [readAlerts, setReadAlerts] = useState(() => new Set());
   const [loadState, setLoadState] = useState("loading");
+  const [authError, setAuthError] = useState("");
+  const [apiError, setApiError] = useState("");
+  const [submittingLogin, setSubmittingLogin] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/data/dashboard-data.json")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Dashboard data not found");
+
+    async function loadAuthenticatedDashboard() {
+      try {
+        const me = await apiRequest("/api/v1/me");
+        const payload = await apiRequest("/api/v1/dashboard");
+
+        if (cancelled) {
+          return;
         }
-        return response.json();
-      })
-      .then((payload) => {
+
+        setAuthUser(me.user);
+        setDashboard(payload);
+        setAppState("ready");
+        setLoadState("ready");
+      } catch (error) {
         if (!cancelled) {
-          setDashboard(payload);
-          setLoadState("ready");
+          if (error instanceof SessionExpiredError) {
+            setAppState("login");
+            setLoadState("guest");
+          } else {
+            setApiError(error.message || "Dashboard API is unavailable.");
+            setAppState("error");
+            setLoadState("error");
+          }
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLoadState("fallback");
-        }
-      });
+      }
+    }
+
+    loadAuthenticatedDashboard();
+
     return () => {
       cancelled = true;
     };
@@ -520,16 +598,131 @@ export function App() {
 
   const unreadCount = getUnreadCount(alerts);
   const stats = { ...dashboard.stats, alertsUnread: unreadCount };
+  const isEmptyLibrary =
+    loadState === "ready" &&
+    stats.episodesWatched === 0 &&
+    stats.moviesWatched === 0 &&
+    stats.showsFollowed === 0;
 
-  function openItem(item) {
-    setSelectedItem(item);
-    if (item?.id && "category" in item) {
-      setReadAlerts((current) => new Set([...current, item.id]));
+  async function loadDashboardAfterLogin() {
+    const me = await apiRequest("/api/v1/me");
+    const payload = await apiRequest("/api/v1/dashboard");
+
+    setAuthUser(me.user);
+    setDashboard(payload);
+    setReadAlerts(new Set());
+    setAppState("ready");
+    setLoadState("ready");
+  }
+
+  async function handleLogin(credentials) {
+    setAuthError("");
+    setSubmittingLogin(true);
+
+    try {
+      await apiRequest("/api/v1/auth/login", {
+        method: "POST",
+        body: credentials,
+      });
+      await loadDashboardAfterLogin();
+    } catch (error) {
+      setAuthError(error.message || "Sign in failed.");
+      setAppState("login");
+    } finally {
+      setSubmittingLogin(false);
     }
   }
 
-  function markAllRead() {
+  async function handleLogout() {
+    try {
+      await apiRequest("/api/v1/auth/logout", { method: "POST" });
+    } catch (error) {
+      if (!(error instanceof SessionExpiredError)) {
+        setApiError(error.message || "Logout failed.");
+      }
+    }
+
+    setAuthUser(null);
+    setDashboard(fallbackData);
+    setReadAlerts(new Set());
+    setSelectedItem(null);
+    setAppState("login");
+    setLoadState("guest");
+  }
+
+  function expireSession() {
+    setAuthUser(null);
+    setDashboard(fallbackData);
+    setReadAlerts(new Set());
+    setSelectedItem(null);
+    setAuthError("Session expired. Sign in again.");
+    setAppState("login");
+    setLoadState("guest");
+  }
+
+  async function openItem(item) {
+    setSelectedItem(item);
+    if (item?.id && "category" in item) {
+      setReadAlerts((current) => new Set([...current, item.id]));
+      setDashboard((current) => ({
+        ...current,
+        alerts: current.alerts.map((alert) =>
+          alert.id === item.id ? { ...alert, unread: false } : alert,
+        ),
+      }));
+
+      try {
+        await apiRequest(`/api/v1/alerts/${item.id}/read`, { method: "POST" });
+      } catch (error) {
+        if (error instanceof SessionExpiredError) {
+          expireSession();
+        }
+      }
+    }
+  }
+
+  async function markAllRead() {
     setReadAlerts(new Set(alerts.map((alert) => alert.id)));
+    setDashboard((current) => ({
+      ...current,
+      alerts: current.alerts.map((alert) => ({ ...alert, unread: false })),
+    }));
+
+    try {
+      await apiRequest("/api/v1/alerts/read-all", { method: "POST" });
+    } catch (error) {
+      if (error instanceof SessionExpiredError) {
+        expireSession();
+      }
+    }
+  }
+
+  if (appState === "checking") {
+    return <LoadingScreen />;
+  }
+
+  if (appState === "login") {
+    return (
+      <LoginScreen
+        error={authError}
+        onLogin={handleLogin}
+        submitting={submittingLogin}
+      />
+    );
+  }
+
+  if (appState === "error") {
+    return (
+      <div className="login-shell">
+        <div className="login-panel compact">
+          <Logo />
+          <div className="login-error">{apiError}</div>
+          <button className="primary-action" onClick={() => window.location.reload()} type="button">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -540,9 +733,14 @@ export function App() {
         onSelect={setActiveSection}
       />
       <main className="dashboard-shell">
-        <Topbar profile={dashboard.profile} query={query} onQueryChange={setQuery} />
-        {loadState === "fallback" ? (
-          <div className="data-warning">Local dashboard data has not been generated yet.</div>
+        <Topbar
+          profile={{ ...dashboard.profile, name: dashboard.profile.name || authUser?.name }}
+          query={query}
+          onLogout={handleLogout}
+          onQueryChange={setQuery}
+        />
+        {isEmptyLibrary ? (
+          <div className="data-warning">Your library is empty.</div>
         ) : null}
         <div className="dashboard-grid">
           <div className="primary-column">
