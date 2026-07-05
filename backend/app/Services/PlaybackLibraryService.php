@@ -182,14 +182,73 @@ class PlaybackLibraryService
             throw new ModelNotFoundException;
         }
 
-        return MovieWatch::create([
+        $watch = MovieWatch::firstOrNew([
             'user_id' => $user->id,
             'movie_id' => $movie->id,
+            'source' => 'manual',
+        ]);
+
+        $watch->forceFill([
             'watched_at' => $data['watched_at'] ?? now(),
             'runtime' => $data['runtime'] ?? $movie->runtime,
             'watch_count' => 1,
             'source' => 'manual',
+        ])->save();
+
+        return $watch->refresh();
+    }
+
+    /**
+     * @param  array{watched_at?:string|null,runtime?:int|null}  $data
+     */
+    public function manuallyTrackEpisode(User $user, Episode $episode, array $data): EpisodeWatch
+    {
+        $episode->loadMissing('show');
+
+        if ($episode->user_id !== $user->id || ($episode->show && $episode->show->user_id !== $user->id)) {
+            throw new ModelNotFoundException;
+        }
+
+        $watch = EpisodeWatch::firstOrNew([
+            'user_id' => $user->id,
+            'episode_id' => $episode->id,
+            'source' => 'manual',
         ]);
+
+        $watch->forceFill([
+            'show_id' => $episode->show_id,
+            'watched_at' => $data['watched_at'] ?? now(),
+            'runtime' => $data['runtime'] ?? $episode->runtime,
+            'source' => 'manual',
+        ])->save();
+
+        return $watch->refresh();
+    }
+
+    public function untrackManualMovie(User $user, Movie $movie): void
+    {
+        if ($movie->user_id !== $user->id) {
+            throw new ModelNotFoundException;
+        }
+
+        MovieWatch::forUser($user)
+            ->where('movie_id', $movie->id)
+            ->where('source', 'manual')
+            ->delete();
+    }
+
+    public function untrackManualEpisode(User $user, Episode $episode): void
+    {
+        $episode->loadMissing('show');
+
+        if ($episode->user_id !== $user->id || ($episode->show && $episode->show->user_id !== $user->id)) {
+            throw new ModelNotFoundException;
+        }
+
+        EpisodeWatch::forUser($user)
+            ->where('episode_id', $episode->id)
+            ->where('source', 'manual')
+            ->delete();
     }
 
     /**

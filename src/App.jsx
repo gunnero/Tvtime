@@ -103,6 +103,32 @@ function imageFor(item) {
   return item?.poster || item?.backdrop || fallbackPoster;
 }
 
+function mediaDetailPath(item) {
+  if (item?.episodeId) {
+    return `/api/v1/library/episodes/${item.episodeId}`;
+  }
+  if (item?.movieId) {
+    return `/api/v1/library/movies/${item.movieId}`;
+  }
+  if (item?.showId) {
+    return `/api/v1/library/shows/${item.showId}`;
+  }
+  return "";
+}
+
+function mediaBasePath(detail) {
+  if (detail?.kind === "episode" && detail.episodeId) {
+    return `/api/v1/library/episodes/${detail.episodeId}`;
+  }
+  if (detail?.kind === "movie" && detail.movieId) {
+    return `/api/v1/library/movies/${detail.movieId}`;
+  }
+  if (detail?.kind === "show" && detail.showId) {
+    return `/api/v1/library/shows/${detail.showId}`;
+  }
+  return "";
+}
+
 function Logo() {
   return (
     <div className="brand-lockup">
@@ -408,50 +434,196 @@ function ActivityChart({ activity }) {
   );
 }
 
-function DetailModal({ item, onClose }) {
+export function DetailModal({
+  item,
+  detail,
+  detailError = "",
+  detailLoading = false,
+  actionError = "",
+  actionPending = false,
+  onClose,
+  onSaveRating,
+  onClearRating,
+  onSaveNote,
+  onDeleteNote,
+  onMarkWatched,
+  onMarkUnwatched,
+}) {
+  const [noteBody, setNoteBody] = useState("");
+
+  useEffect(() => {
+    setNoteBody(detail?.notes?.[0]?.body || "");
+  }, [detail?.id, detail?.kind, detail?.notes]);
+
   if (!item) {
     return null;
   }
 
   const isAlert = "category" in item;
+  const view = detail || item;
+  const primaryNote = detail?.notes?.[0] || null;
+  const rating = detail?.rating?.rating || null;
+  const canManualWatch = detail?.kind === "movie" || detail?.kind === "episode";
+  const hasManualWatch = (detail?.watchHistory || []).some((watch) => watch.source === "manual");
+  const providerLabel = detail?.provider?.linked
+    ? `Linked to ${detail.provider.linkedItemsCount} provider ${
+        detail.provider.linkedItemsCount === 1 ? "item" : "items"
+      }`
+    : "No provider link";
+
+  function submitNote(event) {
+    event.preventDefault();
+    onSaveNote?.(detail, noteBody, primaryNote);
+  }
+
   return (
     <div className="modal-layer" role="presentation" onMouseDown={onClose}>
       <section
         className="detail-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`${item.title} details`}
+        aria-label={`${view.title} details`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <button className="modal-close" onClick={onClose} type="button" aria-label="Close">
           <X size={20} />
         </button>
         {!isAlert ? (
-          <img className="modal-art" src={imageFor(item)} alt="" />
+          <img className="modal-art" src={imageFor(view)} alt="" />
         ) : (
           <div className="modal-alert-art">
             <Bell size={48} weight="duotone" />
           </div>
         )}
         <div className="modal-copy">
-          <span className="eyebrow">{isAlert ? item.category : item.kind}</span>
-          <h2>{item.title}</h2>
-          <p>{isAlert ? item.subtitle : item.meta}</p>
+          <span className="eyebrow">{isAlert ? item.category : view.kind}</span>
+          <h2>{view.title}</h2>
+          <p>{isAlert ? item.subtitle : view.meta}</p>
           {!isAlert ? (
-            <dl>
-              <div>
-                <dt>Status</dt>
-                <dd>{item.badge || "saved"}</dd>
-              </div>
-              <div>
-                <dt>Progress</dt>
-                <dd>{item.progress || 0}%</dd>
-              </div>
-              <div>
-                <dt>Watched</dt>
-                <dd>{shortDate(item.watchedAt) || "From archive"}</dd>
-              </div>
-            </dl>
+            <>
+              <dl>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{view.status || item.badge || "saved"}</dd>
+                </div>
+                <div>
+                  <dt>Progress</dt>
+                  <dd>{view.progress || (view.watched ? 100 : 0)}%</dd>
+                </div>
+                <div>
+                  <dt>Watched</dt>
+                  <dd>{view.watched ? "Yes" : shortDate(view.watchedAt) || "Not yet"}</dd>
+                </div>
+              </dl>
+
+              {detailLoading ? <div className="detail-state">Loading details...</div> : null}
+              {detailError ? <div className="detail-error">{detailError}</div> : null}
+              {actionError ? <div className="detail-error">{actionError}</div> : null}
+
+              {detail ? (
+                <div className="manual-library-panel">
+                  <section className="detail-section">
+                    <div className="detail-section-heading">
+                      <strong>Rating</strong>
+                      <span>{rating ? `${rating}/10` : "Not rated"}</span>
+                    </div>
+                    <div className="rating-control" aria-label="Rating">
+                      {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+                        <button
+                          aria-pressed={rating === value}
+                          className={rating === value ? "active" : ""}
+                          disabled={actionPending}
+                          key={value}
+                          onClick={() => onSaveRating?.(detail, value)}
+                          type="button"
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      className="text-action"
+                      disabled={actionPending || !rating}
+                      onClick={() => onClearRating?.(detail)}
+                      type="button"
+                    >
+                      Clear rating
+                    </button>
+                  </section>
+
+                  <section className="detail-section">
+                    <div className="detail-section-heading">
+                      <strong>Private note</strong>
+                      <span>{primaryNote ? "Saved" : "Only you can see this"}</span>
+                    </div>
+                    <form className="note-form" onSubmit={submitNote}>
+                      <label>
+                        <span>Note</span>
+                        <textarea
+                          aria-label="Private note"
+                          disabled={actionPending}
+                          onChange={(event) => setNoteBody(event.target.value)}
+                          value={noteBody}
+                        />
+                      </label>
+                      <div className="modal-actions">
+                        <button
+                          className="secondary-action"
+                          disabled={actionPending || !noteBody.trim()}
+                          type="submit"
+                        >
+                          Save note
+                        </button>
+                        {primaryNote ? (
+                          <button
+                            className="text-action danger"
+                            disabled={actionPending}
+                            onClick={() => onDeleteNote?.(detail, primaryNote)}
+                            type="button"
+                          >
+                            Delete note
+                          </button>
+                        ) : null}
+                      </div>
+                    </form>
+                  </section>
+
+                  <section className="detail-section">
+                    <div className="detail-section-heading">
+                      <strong>Watch history</strong>
+                      <span>{providerLabel}</span>
+                    </div>
+                    {canManualWatch ? (
+                      <button
+                        className="primary-action compact-action"
+                        disabled={actionPending}
+                        onClick={() =>
+                          hasManualWatch
+                            ? onMarkUnwatched?.(detail)
+                            : onMarkWatched?.(detail)
+                        }
+                        type="button"
+                      >
+                        <CheckCircle size={18} weight="fill" />
+                        {hasManualWatch ? "Mark unwatched" : "Mark watched"}
+                      </button>
+                    ) : null}
+                    <div className="watch-history">
+                      {detail.watchHistory?.length ? (
+                        detail.watchHistory.map((watch) => (
+                          <div key={watch.id}>
+                            <span>{shortDate(watch.watchedAt) || "Unknown date"}</span>
+                            <strong>{watch.source || "archive"}</strong>
+                          </div>
+                        ))
+                      ) : (
+                        <em>No watch history yet</em>
+                      )}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+            </>
           ) : (
             <dl>
               <div>
@@ -624,6 +796,11 @@ export function App() {
   const [activeSection, setActiveSection] = useState("home");
   const [activeAlertTab, setActiveAlertTab] = useState("all");
   const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [detailActionError, setDetailActionError] = useState("");
+  const [detailActionPending, setDetailActionPending] = useState(false);
   const [readAlerts, setReadAlerts] = useState(() => new Set());
   const [loadState, setLoadState] = useState("loading");
   const [authError, setAuthError] = useState("");
@@ -700,6 +877,50 @@ export function App() {
     setLoadState("ready");
   }
 
+  async function refreshDashboard() {
+    const payload = await apiRequest("/api/v1/dashboard");
+    setDashboard(payload);
+  }
+
+  async function loadMediaDetail(item) {
+    const path = mediaDetailPath(item);
+
+    setSelectedDetail(null);
+    setDetailError("");
+    setDetailActionError("");
+
+    if (!path) {
+      setDetailLoading(false);
+      return;
+    }
+
+    setDetailLoading(true);
+
+    try {
+      const payload = await apiRequest(path);
+      setSelectedDetail(payload.item);
+    } catch (error) {
+      if (error instanceof SessionExpiredError) {
+        expireSession();
+        return;
+      }
+      setDetailError(error.message || "Could not load details.");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function refreshMediaDetail(detail) {
+    const path = mediaDetailPath(detail);
+
+    if (!path) {
+      return;
+    }
+
+    const payload = await apiRequest(path);
+    setSelectedDetail(payload.item);
+  }
+
   async function handleLogin(credentials) {
     setAuthError("");
     setSubmittingLogin(true);
@@ -731,6 +952,7 @@ export function App() {
     setDashboard(fallbackData);
     setReadAlerts(new Set());
     setSelectedItem(null);
+    setSelectedDetail(null);
     setAppState("login");
     setLoadState("guest");
   }
@@ -740,6 +962,7 @@ export function App() {
     setDashboard(fallbackData);
     setReadAlerts(new Set());
     setSelectedItem(null);
+    setSelectedDetail(null);
     setAuthError("Session expired. Sign in again.");
     setAppState("login");
     setLoadState("guest");
@@ -747,6 +970,10 @@ export function App() {
 
   async function openItem(item) {
     setSelectedItem(item);
+    setSelectedDetail(null);
+    setDetailError("");
+    setDetailActionError("");
+
     if (item?.id && "category" in item) {
       setReadAlerts((current) => new Set([...current, item.id]));
       setDashboard((current) => ({
@@ -763,7 +990,90 @@ export function App() {
           expireSession();
         }
       }
+
+      return;
     }
+
+    await loadMediaDetail(item);
+  }
+
+  async function runDetailAction(action) {
+    setDetailActionPending(true);
+    setDetailActionError("");
+
+    try {
+      await action();
+    } catch (error) {
+      if (error instanceof SessionExpiredError) {
+        expireSession();
+        return;
+      }
+      setDetailActionError(error.message || "Could not save change.");
+    } finally {
+      setDetailActionPending(false);
+    }
+  }
+
+  async function handleSaveRating(detail, rating) {
+    await runDetailAction(async () => {
+      const path = mediaBasePath(detail);
+      await apiRequest(`${path}/rating`, {
+        method: "POST",
+        body: { rating },
+      });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handleClearRating(detail) {
+    await runDetailAction(async () => {
+      const path = mediaBasePath(detail);
+      await apiRequest(`${path}/rating`, { method: "DELETE" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handleSaveNote(detail, body, note) {
+    if (!body.trim()) {
+      setDetailActionError("Note cannot be empty.");
+      return;
+    }
+
+    await runDetailAction(async () => {
+      const path = note?.id ? `/api/v1/library/notes/${note.id}` : `${mediaBasePath(detail)}/notes`;
+      await apiRequest(path, {
+        method: note?.id ? "PATCH" : "POST",
+        body: { body: body.trim() },
+      });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handleDeleteNote(detail, note) {
+    await runDetailAction(async () => {
+      await apiRequest(`/api/v1/library/notes/${note.id}`, { method: "DELETE" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handleMarkWatched(detail) {
+    await runDetailAction(async () => {
+      await apiRequest(`${mediaBasePath(detail)}/watch`, { method: "POST" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handleMarkUnwatched(detail) {
+    await runDetailAction(async () => {
+      await apiRequest(`${mediaBasePath(detail)}/watch`, { method: "DELETE" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
   }
 
   async function markAllRead() {
@@ -875,7 +1185,26 @@ export function App() {
           </aside>
         </div>
       </main>
-      <DetailModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+      <DetailModal
+        actionError={detailActionError}
+        actionPending={detailActionPending}
+        detail={selectedDetail}
+        detailError={detailError}
+        detailLoading={detailLoading}
+        item={selectedItem}
+        onClearRating={handleClearRating}
+        onClose={() => {
+          setSelectedItem(null);
+          setSelectedDetail(null);
+          setDetailError("");
+          setDetailActionError("");
+        }}
+        onDeleteNote={handleDeleteNote}
+        onMarkUnwatched={handleMarkUnwatched}
+        onMarkWatched={handleMarkWatched}
+        onSaveNote={handleSaveNote}
+        onSaveRating={handleSaveRating}
+      />
     </div>
   );
 }

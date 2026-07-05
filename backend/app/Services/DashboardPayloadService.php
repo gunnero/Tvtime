@@ -135,6 +135,7 @@ class DashboardPayloadService
                 return [
                     'id' => 'show-gap-'.$show->id,
                     'kind' => 'show',
+                    'showId' => $show->id,
                     'title' => $show->title,
                     'subtitle' => $available.' '.str('episode')->plural($available).' ready',
                     'meta' => $show->seen_episodes.'/'.$show->aired_episodes.' watched',
@@ -163,6 +164,7 @@ class DashboardPayloadService
             ->map(fn (Movie $movie): array => [
                 'id' => 'movie-shelf-'.$movie->id,
                 'kind' => 'movie',
+                'movieId' => $movie->id,
                 'title' => $movie->title,
                 'subtitle' => 'Saved for later',
                 'meta' => $movie->runtime > 0 ? $movie->runtime.' min' : 'Watchlist',
@@ -193,6 +195,7 @@ class DashboardPayloadService
             ->map(fn (Show $show): array => [
                 'id' => 'top-show-'.$show->id,
                 'kind' => 'show',
+                'showId' => $show->id,
                 'title' => $show->title,
                 'subtitle' => $show->episode_watches_count.' watched '.str('episode')->plural($show->episode_watches_count),
                 'meta' => $show->episode_watches_max_watched_at
@@ -277,7 +280,9 @@ class DashboardPayloadService
 
         return [
             'id' => 'episode-watch-'.$watch->id,
-            'kind' => 'show',
+            'kind' => 'episode',
+            'episodeId' => $episode?->id,
+            'showId' => $show?->id,
             'title' => $show?->title ?? 'Untitled show',
             'subtitle' => $season && $episodeNumber ? 'S'.$season.' E'.$episodeNumber : 'Episode',
             'meta' => $watch->runtime > 0 ? $watch->runtime.' min episode' : 'Watched episode',
@@ -299,6 +304,7 @@ class DashboardPayloadService
         return [
             'id' => 'movie-watch-'.$watch->id,
             'kind' => 'movie',
+            'movieId' => $movie?->id,
             'title' => $movie?->title ?? 'Untitled movie',
             'subtitle' => 'Movie',
             'meta' => $watch->runtime > 0 ? $watch->runtime.' min movie' : 'Watched movie',

@@ -6,7 +6,7 @@ Provider-independent personal media operating system with a React/Vite dashboard
 
 - `src/`: React dashboard UI. It logs in through Laravel and loads `/api/v1/dashboard`.
 - `scripts/import_tvtime.py`: imports the preserved TV Time GDPR export into ignored private outputs.
-- `backend/`: Laravel 13 backend for invite-only users, Filament admin, analytics, audit logs, alerts, per-user libraries, provider-owned player state, ratings, notes, and safe backups.
+- `backend/`: Laravel 13 backend for invite-only users, Filament admin, analytics, audit logs, alerts, per-user libraries, provider-owned player state, manual watch history, ratings, notes, and safe backups.
 
 The deployed staging site at `https://ccc.razbudise.mk` remains protected by Apache Basic Auth. Do not remove that protection until Laravel auth and deployment hardening are finished.
 
@@ -140,13 +140,24 @@ The React app expects the backend on the same origin. Private routes use Laravel
 - `GET /api/v1/dashboard`
 - `POST /api/v1/alerts/{alert}/read`
 - `POST /api/v1/alerts/read-all`
+- `GET /api/v1/library/movies/{movie}`
+- `GET /api/v1/library/shows/{show}`
+- `GET /api/v1/library/episodes/{episode}`
 - `POST /api/v1/library/movies/{movie}/watch`
+- `POST /api/v1/library/episodes/{episode}/watch`
+- `DELETE /api/v1/library/movies/{movie}/watch`
+- `DELETE /api/v1/library/episodes/{episode}/watch`
 - `POST /api/v1/library/movies/{movie}/rating`
 - `POST /api/v1/library/shows/{show}/rating`
 - `POST /api/v1/library/episodes/{episode}/rating`
+- `DELETE /api/v1/library/movies/{movie}/rating`
+- `DELETE /api/v1/library/shows/{show}/rating`
+- `DELETE /api/v1/library/episodes/{episode}/rating`
 - `POST /api/v1/library/movies/{movie}/notes`
 - `POST /api/v1/library/shows/{show}/notes`
 - `POST /api/v1/library/episodes/{episode}/notes`
+- `PATCH /api/v1/library/notes/{note}`
+- `DELETE /api/v1/library/notes/{note}`
 - `GET /api/v1/player/sources`
 - `DELETE /api/v1/player/sources/{source}`
 - `POST /api/v1/player/items/{item}/play`
@@ -154,6 +165,8 @@ The React app expects the backend on the same origin. Private routes use Laravel
 - `PATCH /api/v1/player/sessions/{session}`
 
 Filament admin is available at `/admin` for active `owner` and `admin` users.
+
+The React detail modal uses the library endpoints for user-owned movies, shows, and episodes. Users can rate 1-10, clear ratings, save/delete private notes, and add/remove manual watch rows for movies and episodes. The remove action only deletes manual watch rows; imported/provider watch history remains permanent.
 
 ## Verification
 

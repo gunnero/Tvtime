@@ -11,7 +11,7 @@ Project name: MediaHub.
 
 Purpose: provider-independent personal media operating system for movies and TV shows. The TV Time archive/importer is one data source, not the product identity.
 
-Current version: frontend `package.json` is `0.0.0`; UI footer says `v1.0.0`; backend includes Laravel foundation, authenticated dashboard, user-owned provider/player layer, and Canonical Media Engine sprint 001. No release tag yet.
+Current version: frontend `package.json` is `0.0.0`; UI footer says `v1.0.0`; backend includes Laravel foundation, authenticated dashboard, user-owned provider/player layer, Canonical Media Engine sprint 001, and Manual Library UI sprint 002. No release tag yet.
 
 Completed:
 
@@ -29,6 +29,8 @@ Completed:
 - User-scoped ratings and private notes for movies, shows, and episodes.
 - Provider-independent backup/restore commands: `mediahub:backup-user` and `mediahub:restore-user`.
 - Dashboard additive stats for manual watches, auto-tracked watches, provider link state, ratings, notes, and source-only progress.
+- User-facing detail modal for movies, shows, and episodes with rating, private notes, safe watch history, provider link status, and manual watched/unwatched controls for movies/episodes.
+- Detail APIs for user-owned movies, shows, and episodes plus clear-rating, note update/delete, episode manual watch, and manual unwatch endpoints.
 - Feature tests for canonical watch invariants, ratings/notes, safe backup/restore, provider URL safety, and provider deletion preserving permanent history.
 - Filament admin panel at `/admin`.
 - Filament resources for Users, Invites, Alerts, Shows, Movies, Episode Watches, Movie Watches, Playback Sources, Playback Source Items, Analytics Events, Audit Logs.
@@ -40,7 +42,6 @@ Still planned:
 - Create the first owner/admin production user and import the real private SQLite for that user.
 - User-facing import upload flow.
 - User-facing provider attach/manage flow.
-- User-facing ratings/notes UI beyond API/dashboard counts.
 - Background jobs/scheduler for future alert checks.
 - TMDB/TVMaze or similar metadata integration later.
 - Richer analytics dashboard and admin metrics.
@@ -96,6 +97,7 @@ Source tree, excluding heavy/generated/private folders such as `.git`, `node_mod
 ├── scripts/import_tvtime.py
 ├── src/
 │   ├── App.jsx
+│   ├── App.test.jsx
 │   ├── lib/api.js
 │   ├── lib/api.test.js
 │   ├── lib/dashboard.js
@@ -180,9 +182,13 @@ Every media/library/player/annotation table is scoped by `user_id`.
 - `DashboardController`: `GET /api/v1/dashboard`; returns user-scoped dashboard JSON.
 - `AlertController@read`: `POST /api/v1/alerts/{alert}/read`; marks one owned alert read.
 - `AlertController@readAll`: `POST /api/v1/alerts/read-all`; marks all owned alerts read.
-- `ManualLibraryController@watchMovie`: `POST /api/v1/library/movies/{movie}/watch`; manually tracks a user-owned movie watch.
+- `ManualLibraryController@showMovie/showShow/showEpisode`: `GET /api/v1/library/{media}/{id}`; returns a safe user-owned detail payload with status, rating, private notes, watch history, and provider link status.
+- `ManualLibraryController@watchMovie/watchEpisode`: `POST /api/v1/library/{media}/{id}/watch`; creates or updates one manual watch row for a user-owned movie or episode.
+- `ManualLibraryController@unwatchMovie/unwatchEpisode`: `DELETE /api/v1/library/{media}/{id}/watch`; removes only manual watch rows for a user-owned movie or episode, preserving imported/provider history.
 - `ManualLibraryController@rateMovie/rateShow/rateEpisode`: `POST /api/v1/library/{media}/{id}/rating`; saves a 1-10 rating for same-user canonical media.
+- `ManualLibraryController@clearMovieRating/clearShowRating/clearEpisodeRating`: `DELETE /api/v1/library/{media}/{id}/rating`; clears the current user's rating.
 - `ManualLibraryController@noteMovie/noteShow/noteEpisode`: `POST /api/v1/library/{media}/{id}/notes`; creates a private same-user note.
+- `ManualLibraryController@updateNote/deleteNote`: `PATCH|DELETE /api/v1/library/notes/{note}`; updates or deletes only the current user's private note.
 - `PlayerController@sources`: `GET /api/v1/player/sources`; lists only the user's provider sources.
 - `PlayerController@destroySource`: `DELETE /api/v1/player/sources/{source}`; deletes one owned provider without deleting canonical watch history.
 - `PlayerController@play`: `POST /api/v1/player/items/{item}/play`; starts playback for an owned provider item only.
@@ -193,6 +199,7 @@ Every media/library/player/annotation table is scoped by `user_id`.
 
 - `InviteService`: creates hashed invite tokens and accepts valid pending invites.
 - `DashboardPayloadService`: builds the React-compatible payload from Laravel tables.
+- `MediaDetailService`: builds safe per-item detail payloads for the React modal without stream URLs or provider secrets.
 - `PlaybackLibraryService`: enforces user-owned provider/player access, media links, playback sessions, progress, manual tracking, and provider deletion rules.
 - `MediaAnnotationService`: enforces same-user canonical media ownership for ratings and notes, records analytics, and writes audit logs.
 - `AlertService`: marks alerts read/read-all with user ownership checks and analytics.
@@ -212,7 +219,8 @@ API:
 
 - Public under `web` middleware: `GET /api/v1/status`, `POST /api/v1/auth/login`, `POST /api/v1/invites/accept`
 - Authenticated under `auth`: `GET /api/v1/me`, `POST /api/v1/auth/logout`, `GET /api/v1/dashboard`, `POST /api/v1/alerts/{alert}/read`, `POST /api/v1/alerts/read-all`
-- Authenticated player/library: `POST /api/v1/library/movies/{movie}/watch`, rating/note routes for movies/shows/episodes, `GET /api/v1/player/sources`, `DELETE /api/v1/player/sources/{source}`, `POST /api/v1/player/items/{item}/play`, `POST /api/v1/player/items/{item}/link`, `PATCH /api/v1/player/sessions/{session}`
+- Authenticated library: `GET /api/v1/library/movies/{movie}`, `GET /api/v1/library/shows/{show}`, `GET /api/v1/library/episodes/{episode}`, `POST|DELETE /api/v1/library/movies/{movie}/watch`, `POST|DELETE /api/v1/library/episodes/{episode}/watch`, `POST|DELETE /api/v1/library/{media}/{id}/rating`, `POST /api/v1/library/{media}/{id}/notes`, `PATCH|DELETE /api/v1/library/notes/{note}`
+- Authenticated player: `GET /api/v1/player/sources`, `DELETE /api/v1/player/sources/{source}`, `POST /api/v1/player/items/{item}/play`, `POST /api/v1/player/items/{item}/link`, `PATCH /api/v1/player/sessions/{session}`
 
 Admin:
 
@@ -238,12 +246,13 @@ Admin:
 - SQLite/JSON import command for existing private dashboard data.
 - Persistent site alerts.
 - Player section is provider-gated: users without a provider can manually track; users with a provider can play only their own source items and completion auto-tracks watch history.
-- Ratings and notes are private, user-scoped, and provider-independent.
+- Ratings and notes are private, user-scoped, provider-independent, and usable from the React detail modal.
+- Movies, shows, and episodes have a safe user-facing detail modal. Movies and episodes can be manually marked watched/unwatched; unwatch removes manual rows only and keeps imported/provider history.
 - Provider-safe backup/restore exports canonical library data and permanent user activity while excluding stream URLs, provider credentials, and secrets.
 - Dashboard stats include manual watch count, auto-tracked watch count, linked/unlinked provider item counts, unsynced source-only progress count, ratings count, and notes count.
 - Analytics and audit log creation.
 - Filament admin for users, invites, alerts, media inspection, analytics, and audit logs.
-- Frontend loading, login, API error, empty library, session expired, logout, search/filter, details modal, poster shelves, stats, and activity chart.
+- Frontend loading, login, API error, empty library, session expired, logout, search/filter, manual-library detail modal, poster shelves, stats, and activity chart.
 
 ## 10. Current TODO
 
@@ -256,8 +265,8 @@ Priority 1:
 Priority 2:
 
 - Add safe user-facing import upload flow.
-- Add user-facing ratings/notes management UI.
 - Add user-facing backup download/restore flow if desired; current support is command-line only.
+- Add user-facing provider attach/manage flow.
 - Add admin dashboard metrics and rollups.
 - Add production queue/scheduler process.
 
@@ -311,7 +320,7 @@ Screens:
 - Alerts view: wide alert list; opening an alert persists read state.
 - Stats view: stats strip and activity chart.
 - Lists/settings placeholders: preserved from original design.
-- Detail modal: item and alert detail surface.
+- Detail modal: alert detail plus movie/show/episode detail; media details show watched state, rating controls, private note editor, safe watch history, provider link status, and manual watched/unwatched controls for movies and episodes.
 
 Screenshots are not embedded in this handover. Generate with Playwright after starting the app if needed.
 
@@ -323,7 +332,6 @@ Known issues:
 - No production owner/admin seed workflow documented beyond using Laravel/Filament.
 - No user-facing import upload flow yet.
 - No user-facing provider attach/manage UI yet; the backend architecture and owner-enforced APIs are in place.
-- No user-facing ratings/notes management UI yet; backend APIs and dashboard counts exist.
 - Backup/restore is command-line only.
 - No metadata provider integration, so future episode/movie alert automation is not live.
 
@@ -345,7 +353,7 @@ Technical debt:
 5. Create first owner/admin user.
 6. Import `../var/private/tvtime.sqlite` for that user.
 7. Run `php artisan mediahub:backup-user {user_id}` once after import to verify safe backup generation.
-8. Smoke test Basic Auth, Laravel login, `/api/v1/status`, `/api/v1/dashboard`, rating/note endpoints, alert read/read-all, `/admin`.
+8. Smoke test Basic Auth, Laravel login, `/api/v1/status`, `/api/v1/dashboard`, detail modal rating/note/manual watch actions, alert read/read-all, `/admin`.
 
 ## 17. Git
 
@@ -372,4 +380,4 @@ See section 3 for the source tree. Full local checkouts also contain ignored/gen
 
 ## 20. Five-Minute Summary
 
-MediaHub is now an authenticated Laravel + React personal media operating system. The existing poster UI remains, but it logs into Laravel and loads `/api/v1/dashboard` instead of static JSON. Laravel owns invite-only users, sessions, alerts, analytics, audit logs, user-scoped canonical media, watch history, ratings, notes, provider/player tables, Filament admin, TV Time import, and provider-safe backup/restore. Provider items are temporary; canonical media, watch history, ratings, and notes are permanent. Player playback exists only for users who attach their own provider/source; there is no global stream catalog and dashboard payloads do not expose stream/provider URLs. The next engineer should deploy behind existing Apache Basic Auth, create the first admin user, import the private SQLite for that user, create a safe backup, and smoke test login, dashboard data, ratings/notes, alerts, provider-gated Player state, and `/admin`.
+MediaHub is now an authenticated Laravel + React personal media operating system. The existing poster UI remains, but it logs into Laravel and loads `/api/v1/dashboard` instead of static JSON. Laravel owns invite-only users, sessions, alerts, analytics, audit logs, user-scoped canonical media, watch history, ratings, notes, provider/player tables, Filament admin, TV Time import, and provider-safe backup/restore. Provider items are temporary; canonical media, watch history, ratings, and notes are permanent. The React detail modal now lets users view safe movie/show/episode detail, save/clear ratings, save/delete private notes, inspect safe watch history, see provider link status, and manually mark movies/episodes watched or unwatched without deleting imported/provider history. Player playback exists only for users who attach their own provider/source; there is no global stream catalog and dashboard/detail payloads do not expose stream/provider URLs. The next engineer should deploy behind existing Apache Basic Auth, create the first admin user, import the private SQLite for that user, create a safe backup, and smoke test login, dashboard data, detail modal actions, alerts, provider-gated Player state, and `/admin`.

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Episode;
 use App\Models\Movie;
+use App\Models\Note;
 use App\Models\Show;
+use App\Services\MediaDetailService;
 use App\Services\MediaAnnotationService;
 use App\Services\PlaybackLibraryService;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +15,27 @@ use Illuminate\Http\Request;
 
 class ManualLibraryController extends Controller
 {
+    public function showMovie(Request $request, Movie $movie, MediaDetailService $details): JsonResponse
+    {
+        return response()->json([
+            'item' => $details->movie($request->user(), $movie),
+        ]);
+    }
+
+    public function showShow(Request $request, Show $show, MediaDetailService $details): JsonResponse
+    {
+        return response()->json([
+            'item' => $details->show($request->user(), $show),
+        ]);
+    }
+
+    public function showEpisode(Request $request, Episode $episode, MediaDetailService $details): JsonResponse
+    {
+        return response()->json([
+            'item' => $details->episode($request->user(), $episode),
+        ]);
+    }
+
     public function watchMovie(Request $request, Movie $movie, PlaybackLibraryService $library): JsonResponse
     {
         $data = $request->validate([
@@ -33,6 +56,41 @@ class ManualLibraryController extends Controller
         ], 201);
     }
 
+    public function watchEpisode(Request $request, Episode $episode, PlaybackLibraryService $library): JsonResponse
+    {
+        $data = $request->validate([
+            'watched_at' => ['nullable', 'date'],
+            'runtime' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $watch = $library->manuallyTrackEpisode($request->user(), $episode, $data);
+
+        return response()->json([
+            'watch' => [
+                'id' => $watch->id,
+                'show_id' => $watch->show_id,
+                'episode_id' => $watch->episode_id,
+                'watched_at' => $watch->watched_at?->toIso8601String(),
+                'runtime' => $watch->runtime,
+                'source' => $watch->source,
+            ],
+        ], 201);
+    }
+
+    public function unwatchMovie(Request $request, Movie $movie, PlaybackLibraryService $library): JsonResponse
+    {
+        $library->untrackManualMovie($request->user(), $movie);
+
+        return response()->json(null, 204);
+    }
+
+    public function unwatchEpisode(Request $request, Episode $episode, PlaybackLibraryService $library): JsonResponse
+    {
+        $library->untrackManualEpisode($request->user(), $episode);
+
+        return response()->json(null, 204);
+    }
+
     public function rateMovie(Request $request, Movie $movie, MediaAnnotationService $annotations): JsonResponse
     {
         return $this->ratingResponse($request, $annotations, 'movie', $movie->id);
@@ -48,6 +106,21 @@ class ManualLibraryController extends Controller
         return $this->ratingResponse($request, $annotations, 'episode', $episode->id);
     }
 
+    public function clearMovieRating(Request $request, Movie $movie, MediaAnnotationService $annotations): JsonResponse
+    {
+        return $this->clearRatingResponse($request, $annotations, 'movie', $movie->id);
+    }
+
+    public function clearShowRating(Request $request, Show $show, MediaAnnotationService $annotations): JsonResponse
+    {
+        return $this->clearRatingResponse($request, $annotations, 'show', $show->id);
+    }
+
+    public function clearEpisodeRating(Request $request, Episode $episode, MediaAnnotationService $annotations): JsonResponse
+    {
+        return $this->clearRatingResponse($request, $annotations, 'episode', $episode->id);
+    }
+
     public function noteMovie(Request $request, Movie $movie, MediaAnnotationService $annotations): JsonResponse
     {
         return $this->noteResponse($request, $annotations, 'movie', $movie->id);
@@ -61,6 +134,26 @@ class ManualLibraryController extends Controller
     public function noteEpisode(Request $request, Episode $episode, MediaAnnotationService $annotations): JsonResponse
     {
         return $this->noteResponse($request, $annotations, 'episode', $episode->id);
+    }
+
+    public function updateNote(Request $request, Note $note, MediaAnnotationService $annotations): JsonResponse
+    {
+        $data = $request->validate([
+            'body' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $note = $annotations->updateNote($request->user(), $note, trim($data['body']));
+
+        return response()->json([
+            'note' => $this->notePayload($note),
+        ]);
+    }
+
+    public function deleteNote(Request $request, Note $note, MediaAnnotationService $annotations): JsonResponse
+    {
+        $annotations->deleteNote($request->user(), $note);
+
+        return response()->json(null, 204);
     }
 
     private function ratingResponse(Request $request, MediaAnnotationService $annotations, string $mediaType, int $mediaId): JsonResponse
@@ -81,6 +174,13 @@ class ManualLibraryController extends Controller
         ]);
     }
 
+    private function clearRatingResponse(Request $request, MediaAnnotationService $annotations, string $mediaType, int $mediaId): JsonResponse
+    {
+        $annotations->clearRating($request->user(), $mediaType, $mediaId);
+
+        return response()->json(null, 204);
+    }
+
     private function noteResponse(Request $request, MediaAnnotationService $annotations, string $mediaType, int $mediaId): JsonResponse
     {
         $data = $request->validate([
@@ -90,12 +190,20 @@ class ManualLibraryController extends Controller
         $note = $annotations->addNote($request->user(), $mediaType, $mediaId, trim($data['body']));
 
         return response()->json([
-            'note' => [
-                'id' => $note->id,
-                'media_type' => $note->media_type,
-                'media_id' => $note->media_id,
-                'body' => $note->body,
-            ],
+            'note' => $this->notePayload($note),
         ], 201);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function notePayload(Note $note): array
+    {
+        return [
+            'id' => $note->id,
+            'media_type' => $note->media_type,
+            'media_id' => $note->media_id,
+            'body' => $note->body,
+        ];
     }
 }

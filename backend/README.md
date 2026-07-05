@@ -33,13 +33,24 @@ Current routes:
 - `GET /api/v1/dashboard`
 - `POST /api/v1/alerts/{alert}/read`
 - `POST /api/v1/alerts/read-all`
+- `GET /api/v1/library/movies/{movie}`
+- `GET /api/v1/library/shows/{show}`
+- `GET /api/v1/library/episodes/{episode}`
 - `POST /api/v1/library/movies/{movie}/watch`
+- `POST /api/v1/library/episodes/{episode}/watch`
+- `DELETE /api/v1/library/movies/{movie}/watch`
+- `DELETE /api/v1/library/episodes/{episode}/watch`
 - `POST /api/v1/library/movies/{movie}/rating`
 - `POST /api/v1/library/shows/{show}/rating`
 - `POST /api/v1/library/episodes/{episode}/rating`
+- `DELETE /api/v1/library/movies/{movie}/rating`
+- `DELETE /api/v1/library/shows/{show}/rating`
+- `DELETE /api/v1/library/episodes/{episode}/rating`
 - `POST /api/v1/library/movies/{movie}/notes`
 - `POST /api/v1/library/shows/{show}/notes`
 - `POST /api/v1/library/episodes/{episode}/notes`
+- `PATCH /api/v1/library/notes/{note}`
+- `DELETE /api/v1/library/notes/{note}`
 - `GET /api/v1/player/sources`
 - `DELETE /api/v1/player/sources/{source}`
 - `POST /api/v1/player/items/{item}/play`
@@ -48,7 +59,7 @@ Current routes:
 
 The API uses session-backed same-origin authentication. Public registration is intentionally absent; users are created through invites or admin management.
 
-`GET /api/v1/dashboard` returns the dashboard-compatible JSON shape consumed by the React app.
+`GET /api/v1/dashboard` returns the dashboard-compatible JSON shape consumed by the React app. Detail endpoints return safe canonical item payloads with watch history, rating, private notes, and provider link status, but never raw stream URLs or provider settings.
 
 ## Canonical Media Contract
 
@@ -81,6 +92,8 @@ The player service validates the whole ownership graph for source items, media l
 ## Ratings And Notes
 
 Users can rate movies, shows, and episodes from 1 to 10. Users can add private notes to movies, shows, and episodes. Ratings and notes are always user-scoped and survive provider changes or provider deletion.
+
+Manual watch toggles exist for movies and episodes. They create/update one `source = manual` watch row per user-owned item to avoid duplicates. The unwatch endpoints remove only manual rows, so imported archive history and provider auto-tracked history remain permanent.
 
 Tables:
 
@@ -141,7 +154,7 @@ Only active `owner` and `admin` users can access the Filament panel. Imported me
 php artisan test
 ```
 
-The feature tests cover status readiness, invite acceptance, login/logout, `/me`, unauthenticated private API access, empty and imported dashboard payloads, alert read persistence, analytics events, audit logs, import validation, player/provider ownership, manual tracking without a provider, provider auto-tracking, provider deletion preserving watch history/ratings/notes, backup/restore, dashboard URL safety, and cross-user isolation.
+The feature tests cover status readiness, invite acceptance, login/logout, `/me`, unauthenticated private API access, empty and imported dashboard payloads, alert read persistence, analytics events, audit logs, import validation, player/provider ownership, manual tracking without a provider, provider auto-tracking, provider deletion preserving watch history/ratings/notes, backup/restore, dashboard URL safety, manual library detail/rating/note/watch APIs, and cross-user isolation.
 
 ## Deployment Checklist
 

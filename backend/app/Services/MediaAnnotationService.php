@@ -63,6 +63,61 @@ class MediaAnnotationService
         return $record;
     }
 
+    public function clearRating(User $user, string $mediaType, int $mediaId): void
+    {
+        $this->assertOwnedMedia($user, $mediaType, $mediaId);
+
+        $rating = Rating::forUser($user)->forMedia($mediaType, $mediaId)->first();
+
+        if (! $rating) {
+            return;
+        }
+
+        $metadata = [
+            'media_type' => $mediaType,
+            'media_id' => $mediaId,
+        ];
+
+        $this->analytics->record('media.rating.cleared', $user, $metadata);
+        $this->auditLogs->record('media.rating.cleared', $user, $rating, $user, $metadata);
+
+        $rating->delete();
+    }
+
+    public function updateNote(User $user, Note $note, string $body): Note
+    {
+        $this->assertOwnedNote($user, $note);
+        $this->assertOwnedMedia($user, $note->media_type, $note->media_id);
+
+        $note->forceFill(['body' => $body])->save();
+
+        $metadata = [
+            'media_type' => $note->media_type,
+            'media_id' => $note->media_id,
+        ];
+
+        $this->analytics->record('media.note.updated', $user, $metadata);
+        $this->auditLogs->record('media.note.updated', $user, $note, $user, $metadata);
+
+        return $note->refresh();
+    }
+
+    public function deleteNote(User $user, Note $note): void
+    {
+        $this->assertOwnedNote($user, $note);
+        $this->assertOwnedMedia($user, $note->media_type, $note->media_id);
+
+        $metadata = [
+            'media_type' => $note->media_type,
+            'media_id' => $note->media_id,
+        ];
+
+        $this->analytics->record('media.note.deleted', $user, $metadata);
+        $this->auditLogs->record('media.note.deleted', $user, $note, $user, $metadata);
+
+        $note->delete();
+    }
+
     private function assertOwnedMedia(User $user, string $mediaType, int $mediaId): void
     {
         $exists = match ($mediaType) {
@@ -73,6 +128,13 @@ class MediaAnnotationService
         };
 
         if (! $exists) {
+            throw new ModelNotFoundException;
+        }
+    }
+
+    private function assertOwnedNote(User $user, Note $note): void
+    {
+        if ($note->user_id !== $user->id) {
             throw new ModelNotFoundException;
         }
     }
