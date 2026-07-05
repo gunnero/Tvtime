@@ -23,6 +23,9 @@
 /auth.json
 /node_modules
 /public/build
+/public/assets
+/public/index.html
+/public/vite.svg
 /public/css/filament
 /public/fonts/filament
 /public/js/filament
