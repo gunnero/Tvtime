@@ -100,6 +100,33 @@ php artisan tvtime:import-user {user_id} ../var/private/tvtime.sqlite
 
 The command only accepts files from ignored private/generated paths and prints summary counts only.
 
+## Optional TMDB Metadata
+
+TMDB enrichment is optional and disabled by default. The app must keep working without a TMDB key.
+
+Add these values only to a private backend `.env`:
+
+```dotenv
+TMDB_ENABLED=false
+TMDB_API_KEY=
+TMDB_TIMEOUT=20
+TMDB_CACHE_TTL=86400
+```
+
+Never commit real TMDB keys. When enabled, metadata enrichment stores public canonical details such as TMDB/IMDb/TVDB IDs, poster/backdrop paths, genres, runtime, release dates, overview, status, vote average, and `metadata_refreshed_at`. It does not overwrite imported titles/poster URLs blindly and does not touch provider/player URLs.
+
+Commands:
+
+```bash
+cd backend
+php artisan mediahub:enrich-movie {movie_id}
+php artisan mediahub:enrich-show {show_id}
+php artisan mediahub:enrich-user {user_id}
+php artisan mediahub:metadata-status {user_id}
+```
+
+Command output is summary-only: searched, matched, enriched, skipped, and failed counts.
+
 ## MediaHub Backup And Restore
 
 Create or restore a provider-safe user backup:
@@ -110,7 +137,7 @@ php artisan mediahub:backup-user {user_id}
 php artisan mediahub:restore-user {user_id} storage/app/private/mediahub-backups/user-{user_id}-YYYYMMDD-HHMMSS.json
 ```
 
-Backups are written under ignored private Laravel storage and include canonical library data, watch history, ratings, notes, safe media links, and safe progress. They intentionally exclude raw stream URLs, playlist URLs, provider settings, provider credentials, API keys, and secrets.
+Backups are written under ignored private Laravel storage and include canonical library data, public metadata, watch history, ratings, notes, safe media links, and safe progress. They intentionally exclude raw stream URLs, playlist URLs, provider settings, provider credentials, API keys, and secrets.
 
 ## Backend Setup
 

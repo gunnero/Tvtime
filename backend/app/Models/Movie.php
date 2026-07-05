@@ -13,9 +13,22 @@ class Movie extends Model
         'user_id',
         'external_source',
         'external_id',
+        'tmdb_id',
+        'imdb_id',
+        'tvdb_id',
         'title',
+        'original_title',
+        'overview',
         'poster_url',
+        'poster_path',
+        'backdrop_path',
+        'release_date',
+        'genres',
         'runtime',
+        'status',
+        'vote_average',
+        'metadata',
+        'metadata_refreshed_at',
         'is_to_watch',
     ];
 
@@ -42,7 +55,13 @@ class Movie extends Model
     protected function casts(): array
     {
         return [
+            'tmdb_id' => 'integer',
+            'release_date' => 'date',
+            'genres' => 'array',
             'runtime' => 'integer',
+            'vote_average' => 'float',
+            'metadata' => 'array',
+            'metadata_refreshed_at' => 'datetime',
             'is_to_watch' => 'boolean',
         ];
     }

@@ -48,6 +48,42 @@ Rules:
 - Canonical records must not store stream URLs, provider credentials, playlist URLs, API keys, or private provider settings.
 - Provider deletion must not delete canonical records.
 
+## Metadata Enrichment
+
+Metadata enrichment is public canonical identity data, not provider state.
+
+Current optional metadata provider:
+
+- TMDB
+
+Supported canonical metadata fields:
+
+- `tmdb_id`
+- `imdb_id`
+- `tvdb_id`
+- `original_title`
+- `overview`
+- `poster_path`
+- `backdrop_path`
+- `release_date` or `first_air_date`
+- `genres`
+- `runtime`
+- `status`
+- `vote_average`
+- `metadata`
+- `metadata_refreshed_at`
+
+Rules:
+
+- TMDB enrichment is optional and disabled by default.
+- The app must work with no TMDB key configured.
+- Real TMDB API keys must live only in private runtime `.env` files.
+- Enrichment must be additive and must not blindly overwrite user/import-owned fields such as current titles or local poster URLs.
+- Public poster/backdrop URLs may be exposed to the authenticated user's dashboard and detail payloads.
+- Metadata payloads must not include stream URLs, playlist URLs, provider credentials, API keys, secrets, or private provider settings.
+- Metadata commands must print summary counts only, not titles or private library contents.
+- Metadata enrichment must be scoped by `user_id` when processing a user library.
+
 ## User Activity
 
 User activity is permanent personal history attached to canonical media.
@@ -173,11 +209,10 @@ Feature tests currently prove:
 Future sprints may add:
 
 - `seasons`
-- metadata provider IDs
+- richer metadata conflict resolution
+- user-facing manual metadata correction
 - richer manual library APIs
-- provider attach/manage UI
 - user-facing import upload
-- metadata enrichment
 - release calendars and notifications
 
 All future work must preserve the separation between canonical media, user activity, and provider state.

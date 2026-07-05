@@ -1249,6 +1249,25 @@ img {
   text-transform: capitalize;
 }
 
+.metadata-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: -10px 0 22px;
+}
+
+.metadata-strip span {
+  min-height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #d8dde2;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .detail-state,
 .detail-error {
   margin: -8px 0 18px;

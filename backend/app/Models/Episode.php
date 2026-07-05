@@ -14,11 +14,23 @@ class Episode extends Model
         'show_id',
         'external_source',
         'external_id',
+        'tmdb_id',
+        'imdb_id',
+        'tvdb_id',
         'season_number',
         'episode_number',
         'title',
+        'original_title',
+        'overview',
+        'poster_path',
+        'backdrop_path',
+        'genres',
         'runtime',
         'air_date',
+        'status',
+        'vote_average',
+        'metadata',
+        'metadata_refreshed_at',
     ];
 
     public function user(): BelongsTo
@@ -44,10 +56,15 @@ class Episode extends Model
     protected function casts(): array
     {
         return [
+            'tmdb_id' => 'integer',
             'season_number' => 'integer',
             'episode_number' => 'integer',
+            'genres' => 'array',
             'runtime' => 'integer',
             'air_date' => 'date',
+            'vote_average' => 'float',
+            'metadata' => 'array',
+            'metadata_refreshed_at' => 'datetime',
         ];
     }
 }

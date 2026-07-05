@@ -17,6 +17,7 @@ class DashboardPayloadService
     public function __construct(
         private readonly AnalyticsService $analytics,
         private readonly MediaLibraryService $mediaLibrary,
+        private readonly MediaMetadataService $metadata,
         private readonly PlaybackLibraryService $playbackLibrary,
     ) {}
 
@@ -139,11 +140,12 @@ class DashboardPayloadService
                     'title' => $show->title,
                     'subtitle' => $available.' '.str('episode')->plural($available).' ready',
                     'meta' => $show->seen_episodes.'/'.$show->aired_episodes.' watched',
-                    'poster' => $show->poster_url ?? '',
-                    'backdrop' => $show->fanart_url ?? '',
+                    'poster' => $this->posterFor($show, $show->poster_url),
+                    'backdrop' => $this->backdropFor($show, $show->fanart_url),
                     'progress' => $this->progress($show->seen_episodes, $show->aired_episodes),
                     'badge' => 'new',
                     'unread' => true,
+                    ...$this->metadataFields($show, $show->first_air_date),
                 ];
             })
             ->values()
@@ -168,11 +170,12 @@ class DashboardPayloadService
                 'title' => $movie->title,
                 'subtitle' => 'Saved for later',
                 'meta' => $movie->runtime > 0 ? $movie->runtime.' min' : 'Watchlist',
-                'poster' => $movie->poster_url ?? '',
-                'backdrop' => $movie->poster_url ?? '',
+                'poster' => $this->posterFor($movie, $movie->poster_url),
+                'backdrop' => $this->backdropFor($movie, $movie->poster_url),
                 'watchedAt' => null,
                 'progress' => 0,
                 'badge' => 'watchlist',
+                ...$this->metadataFields($movie, $movie->release_date),
             ])
             ->values()
             ->all();
@@ -201,10 +204,11 @@ class DashboardPayloadService
                 'meta' => $show->episode_watches_max_watched_at
                     ? 'Last watched '.$this->dateOnly($show->episode_watches_max_watched_at)
                     : 'From archive',
-                'poster' => $show->poster_url ?? '',
-                'backdrop' => $show->fanart_url ?? '',
+                'poster' => $this->posterFor($show, $show->poster_url),
+                'backdrop' => $this->backdropFor($show, $show->fanart_url),
                 'progress' => $this->progress($show->seen_episodes, $show->aired_episodes),
                 'badge' => 'top',
+                ...$this->metadataFields($show, $show->first_air_date),
             ])
             ->values()
             ->all();
@@ -286,11 +290,12 @@ class DashboardPayloadService
             'title' => $show?->title ?? 'Untitled show',
             'subtitle' => $season && $episodeNumber ? 'S'.$season.' E'.$episodeNumber : 'Episode',
             'meta' => $watch->runtime > 0 ? $watch->runtime.' min episode' : 'Watched episode',
-            'poster' => $show?->poster_url ?? '',
-            'backdrop' => $show?->fanart_url ?? '',
+            'poster' => $this->posterFor($episode ?: $show, $show?->poster_url),
+            'backdrop' => $this->backdropFor($episode ?: $show, $show?->fanart_url),
             'watchedAt' => $watch->watched_at?->toIso8601String(),
             'progress' => 100,
             'badge' => 'watched',
+            ...$this->metadataFields($episode ?: $show, $episode?->air_date ?? $show?->first_air_date),
         ];
     }
 
@@ -308,14 +313,93 @@ class DashboardPayloadService
             'title' => $movie?->title ?? 'Untitled movie',
             'subtitle' => 'Movie',
             'meta' => $watch->runtime > 0 ? $watch->runtime.' min movie' : 'Watched movie',
-            'poster' => $movie?->poster_url ?? '',
-            'backdrop' => $movie?->poster_url ?? '',
+            'poster' => $this->posterFor($movie, $movie?->poster_url),
+            'backdrop' => $this->backdropFor($movie, $movie?->poster_url),
             'watchedAt' => $watch->watched_at?->toIso8601String(),
             'progress' => 100,
             'badge' => 'watched',
             'eyebrow' => 'Recent movie',
             'actionLabel' => 'Open details',
+            ...$this->metadataFields($movie, $movie?->release_date),
         ];
+    }
+
+    private function posterFor(mixed $media, ?string $fallback = ''): string
+    {
+        if (! $media) {
+            return $fallback ?? '';
+        }
+
+        return $this->metadata->imageUrl($media->poster_path ?? null) ?: ($fallback ?? '');
+    }
+
+    private function backdropFor(mixed $media, ?string $fallback = ''): string
+    {
+        if (! $media) {
+            return $fallback ?? '';
+        }
+
+        return $this->metadata->imageUrl($media->backdrop_path ?? null, 'w780') ?: ($fallback ?? '');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function metadataFields(mixed $media, mixed $date): array
+    {
+        if (! $media) {
+            return [
+                'genres' => [],
+                'releaseYear' => null,
+                'runtime' => null,
+                'metadataStatus' => 'local',
+                'metadata' => [
+                    'genres' => [],
+                    'releaseYear' => null,
+                    'runtime' => null,
+                    'status' => null,
+                    'tmdbId' => null,
+                    'imdbId' => null,
+                    'tvdbId' => null,
+                    'metadataStatus' => 'local',
+                ],
+            ];
+        }
+
+        $genres = collect($media->genres ?? [])
+            ->map(fn (mixed $genre): ?string => is_array($genre) ? ($genre['name'] ?? null) : null)
+            ->filter()
+            ->values()
+            ->all();
+
+        $metadataStatus = $media->metadata_refreshed_at ? 'enriched' : 'local';
+        $runtime = (int) ($media->runtime ?? 0) ?: null;
+
+        return [
+            'genres' => $genres,
+            'releaseYear' => $this->yearFromDate($date),
+            'runtime' => $runtime,
+            'metadataStatus' => $metadataStatus,
+            'metadata' => [
+                'genres' => $genres,
+                'releaseYear' => $this->yearFromDate($date),
+                'runtime' => $runtime,
+                'status' => $media->status ?? null,
+                'tmdbId' => $media->tmdb_id ?? null,
+                'imdbId' => $media->imdb_id ?? null,
+                'tvdbId' => $media->tvdb_id ?? null,
+                'metadataStatus' => $metadataStatus,
+            ],
+        ];
+    }
+
+    private function yearFromDate(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        return $this->asCarbon($value)->format('Y');
     }
 
     private function progress(int $seen, int $aired): int

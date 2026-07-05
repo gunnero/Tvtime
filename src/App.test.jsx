@@ -68,6 +68,31 @@ describe("DetailModal", () => {
     expect(screen.getByText(/manual/i)).toBeInTheDocument();
   });
 
+  it("renders enriched metadata without breaking poster fallback", () => {
+    const enrichedDetail = {
+      ...movieDetail,
+      poster: "https://image.tmdb.org/t/p/w500/heat-poster.jpg",
+      backdrop: "https://image.tmdb.org/t/p/w780/heat-backdrop.jpg",
+      metadata: {
+        genres: ["Crime", "Drama"],
+        releaseYear: "1995",
+        runtime: 170,
+        status: "Released",
+        tmdbId: 949,
+        imdbId: "tt0113277",
+        metadataStatus: "enriched",
+      },
+    };
+    const { container } = renderDetail({ detail: enrichedDetail });
+
+    expect(container.querySelector(".modal-art")).toHaveAttribute("src", "https://image.tmdb.org/t/p/w500/heat-poster.jpg");
+    expect(screen.getByText("Crime")).toBeInTheDocument();
+    expect(screen.getByText("Drama")).toBeInTheDocument();
+    expect(screen.getByText("1995")).toBeInTheDocument();
+    expect(screen.getByText("TMDB #949")).toBeInTheDocument();
+    expect(screen.getByText("enriched")).toBeInTheDocument();
+  });
+
   it("saves and clears rating selections", () => {
     const props = renderDetail();
 

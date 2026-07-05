@@ -465,6 +465,16 @@ export function DetailModal({
   const rating = detail?.rating?.rating || null;
   const canManualWatch = detail?.kind === "movie" || detail?.kind === "episode";
   const hasManualWatch = (detail?.watchHistory || []).some((watch) => watch.source === "manual");
+  const metadata = detail?.metadata || view?.metadata || {};
+  const metadataTags = [
+    ...(metadata.genres || []),
+    metadata.releaseYear,
+    metadata.runtime ? `${metadata.runtime} min` : null,
+    metadata.tmdbId ? `TMDB #${metadata.tmdbId}` : null,
+    metadata.imdbId ? `IMDb ${metadata.imdbId}` : null,
+    metadata.tvdbId ? `TVDB ${metadata.tvdbId}` : null,
+    metadata.metadataStatus,
+  ].filter(Boolean);
   const providerLabel = detail?.provider?.linked
     ? `Linked to ${detail.provider.linkedItemsCount} provider ${
         detail.provider.linkedItemsCount === 1 ? "item" : "items"
@@ -515,6 +525,14 @@ export function DetailModal({
                   <dd>{view.watched ? "Yes" : shortDate(view.watchedAt) || "Not yet"}</dd>
                 </div>
               </dl>
+
+              {metadataTags.length ? (
+                <div className="metadata-strip" aria-label="Metadata">
+                  {metadataTags.map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
 
               {detailLoading ? <div className="detail-state">Loading details...</div> : null}
               {detailError ? <div className="detail-error">{detailError}</div> : null}

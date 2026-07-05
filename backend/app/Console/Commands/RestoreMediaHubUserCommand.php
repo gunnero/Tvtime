@@ -110,9 +110,22 @@ class RestoreMediaHubUserCommand extends Command
                 'user_id' => $user->id,
                 'external_source' => $this->stringOrNull($row['external_source'] ?? null),
                 'external_id' => $this->stringOrNull($row['external_id'] ?? null),
+                'tmdb_id' => $this->nullableInt($row['tmdb_id'] ?? null),
+                'imdb_id' => $this->stringOrNull($row['imdb_id'] ?? null),
+                'tvdb_id' => $this->stringOrNull($row['tvdb_id'] ?? null),
                 'title' => $this->stringOrDefault($row['title'] ?? null, 'Untitled movie'),
+                'original_title' => $this->stringOrNull($row['original_title'] ?? null),
+                'overview' => $this->stringOrNull($row['overview'] ?? null),
                 'poster_url' => $this->stringOrNull($row['poster_url'] ?? null),
+                'poster_path' => $this->stringOrNull($row['poster_path'] ?? null),
+                'backdrop_path' => $this->stringOrNull($row['backdrop_path'] ?? null),
+                'release_date' => $this->stringOrNull($row['release_date'] ?? null),
+                'genres' => $this->arrayValue($row['genres'] ?? []),
                 'runtime' => $this->intValue($row['runtime'] ?? 0),
+                'status' => $this->stringOrNull($row['status'] ?? null),
+                'vote_average' => $this->nullableFloat($row['vote_average'] ?? null),
+                'metadata' => $this->arrayValue($row['metadata'] ?? []),
+                'metadata_refreshed_at' => $this->dateTimeOrNull($row['metadata_refreshed_at'] ?? null),
                 'is_to_watch' => $this->boolValue($row['is_to_watch'] ?? false),
             ]);
             $movieMap[(int) ($row['old_id'] ?? 0)] = $movie->id;
@@ -123,13 +136,26 @@ class RestoreMediaHubUserCommand extends Command
                 'user_id' => $user->id,
                 'external_source' => $this->stringOrNull($row['external_source'] ?? null),
                 'external_id' => $this->stringOrNull($row['external_id'] ?? null),
+                'tmdb_id' => $this->nullableInt($row['tmdb_id'] ?? null),
+                'imdb_id' => $this->stringOrNull($row['imdb_id'] ?? null),
+                'tvdb_id' => $this->stringOrNull($row['tvdb_id'] ?? null),
                 'title' => $this->stringOrDefault($row['title'] ?? null, 'Untitled show'),
+                'original_title' => $this->stringOrNull($row['original_title'] ?? null),
+                'overview' => $this->stringOrNull($row['overview'] ?? null),
                 'poster_url' => $this->stringOrNull($row['poster_url'] ?? null),
                 'fanart_url' => $this->stringOrNull($row['fanart_url'] ?? null),
+                'poster_path' => $this->stringOrNull($row['poster_path'] ?? null),
+                'backdrop_path' => $this->stringOrNull($row['backdrop_path'] ?? null),
+                'first_air_date' => $this->stringOrNull($row['first_air_date'] ?? null),
+                'genres' => $this->arrayValue($row['genres'] ?? []),
                 'followed' => $this->boolValue($row['followed'] ?? false),
                 'seen_episodes' => $this->intValue($row['seen_episodes'] ?? 0),
                 'aired_episodes' => $this->intValue($row['aired_episodes'] ?? 0),
                 'runtime' => $this->intValue($row['runtime'] ?? 0),
+                'status' => $this->stringOrNull($row['status'] ?? null),
+                'vote_average' => $this->nullableFloat($row['vote_average'] ?? null),
+                'metadata' => $this->arrayValue($row['metadata'] ?? []),
+                'metadata_refreshed_at' => $this->dateTimeOrNull($row['metadata_refreshed_at'] ?? null),
                 'latest_seen_at' => $this->dateTimeOrNull($row['latest_seen_at'] ?? null),
             ]);
             $showMap[(int) ($row['old_id'] ?? 0)] = $show->id;
@@ -141,11 +167,23 @@ class RestoreMediaHubUserCommand extends Command
                 'show_id' => $showMap[(int) ($row['show_old_id'] ?? 0)] ?? null,
                 'external_source' => $this->stringOrNull($row['external_source'] ?? null),
                 'external_id' => $this->stringOrNull($row['external_id'] ?? null),
+                'tmdb_id' => $this->nullableInt($row['tmdb_id'] ?? null),
+                'imdb_id' => $this->stringOrNull($row['imdb_id'] ?? null),
+                'tvdb_id' => $this->stringOrNull($row['tvdb_id'] ?? null),
                 'season_number' => $this->nullableInt($row['season_number'] ?? null),
                 'episode_number' => $this->nullableInt($row['episode_number'] ?? null),
                 'title' => $this->stringOrNull($row['title'] ?? null),
+                'original_title' => $this->stringOrNull($row['original_title'] ?? null),
+                'overview' => $this->stringOrNull($row['overview'] ?? null),
+                'poster_path' => $this->stringOrNull($row['poster_path'] ?? null),
+                'backdrop_path' => $this->stringOrNull($row['backdrop_path'] ?? null),
+                'genres' => $this->arrayValue($row['genres'] ?? []),
                 'runtime' => $this->intValue($row['runtime'] ?? 0),
                 'air_date' => $this->stringOrNull($row['air_date'] ?? null),
+                'status' => $this->stringOrNull($row['status'] ?? null),
+                'vote_average' => $this->nullableFloat($row['vote_average'] ?? null),
+                'metadata' => $this->arrayValue($row['metadata'] ?? []),
+                'metadata_refreshed_at' => $this->dateTimeOrNull($row['metadata_refreshed_at'] ?? null),
             ]);
             $episodeMap[(int) ($row['old_id'] ?? 0)] = $episode->id;
         }
@@ -334,6 +372,23 @@ class RestoreMediaHubUserCommand extends Command
         }
 
         return $this->intValue($value);
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        return (float) $value;
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    private function arrayValue(mixed $value): array
+    {
+        return is_array($value) ? $value : [];
     }
 
     private function dateTimeOrNull(mixed $value): ?CarbonImmutable

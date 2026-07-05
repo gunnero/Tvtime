@@ -16,13 +16,26 @@ class Show extends Model
         'user_id',
         'external_source',
         'external_id',
+        'tmdb_id',
+        'imdb_id',
+        'tvdb_id',
         'title',
+        'original_title',
+        'overview',
         'poster_url',
         'fanart_url',
+        'poster_path',
+        'backdrop_path',
+        'first_air_date',
+        'genres',
         'followed',
         'seen_episodes',
         'aired_episodes',
         'runtime',
+        'status',
+        'vote_average',
+        'metadata',
+        'metadata_refreshed_at',
         'latest_seen_at',
     ];
 
@@ -54,10 +67,16 @@ class Show extends Model
     protected function casts(): array
     {
         return [
+            'tmdb_id' => 'integer',
+            'first_air_date' => 'date',
+            'genres' => 'array',
             'followed' => 'boolean',
             'seen_episodes' => 'integer',
             'aired_episodes' => 'integer',
             'runtime' => 'integer',
+            'vote_average' => 'float',
+            'metadata' => 'array',
+            'metadata_refreshed_at' => 'datetime',
             'latest_seen_at' => 'datetime',
         ];
     }

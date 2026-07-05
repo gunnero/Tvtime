@@ -11,10 +11,17 @@ use App\Models\Note;
 use App\Models\Rating;
 use App\Models\Show;
 use App\Models\User;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Throwable;
 
 class MediaDetailService
 {
+    public function __construct(
+        private readonly MediaMetadataService $metadata,
+    ) {}
+
     /**
      * @return array<string, mixed>
      */
@@ -35,11 +42,12 @@ class MediaDetailService
             'title' => $movie->title,
             'subtitle' => 'Movie',
             'meta' => $movie->runtime > 0 ? $movie->runtime.' min movie' : 'Movie',
-            'poster' => $movie->poster_url ?? '',
-            'backdrop' => $movie->poster_url ?? '',
+            'poster' => $this->posterFor($movie, $movie->poster_url),
+            'backdrop' => $this->backdropFor($movie, $movie->poster_url),
             'status' => $movie->is_to_watch ? 'watchlist' : ($watches->isNotEmpty() ? 'watched' : 'library'),
             'watched' => $watches->isNotEmpty(),
             'watchedCount' => $watches->count(),
+            'metadata' => $this->metadataFields($movie, $movie->release_date),
             'rating' => $this->rating($user, 'movie', $movie->id),
             'notes' => $this->notes($user, 'movie', $movie->id),
             'watchHistory' => $watches->map(fn (MovieWatch $watch): array => $this->watchItem($watch))->values()->all(),
@@ -70,11 +78,12 @@ class MediaDetailService
             'meta' => $show->aired_episodes > 0
                 ? $show->seen_episodes.'/'.$show->aired_episodes.' watched'
                 : $watches->count().' watched episodes',
-            'poster' => $show->poster_url ?? '',
-            'backdrop' => $show->fanart_url ?? '',
+            'poster' => $this->posterFor($show, $show->poster_url),
+            'backdrop' => $this->backdropFor($show, $show->fanart_url),
             'status' => $show->followed ? 'followed' : ($watches->isNotEmpty() ? 'watched' : 'library'),
             'watched' => $watches->isNotEmpty() || $show->seen_episodes > 0,
             'watchedCount' => $watches->count(),
+            'metadata' => $this->metadataFields($show, $show->first_air_date),
             'rating' => $this->rating($user, 'show', $show->id),
             'notes' => $this->notes($user, 'show', $show->id),
             'watchHistory' => $watches->map(fn (EpisodeWatch $watch): array => $this->episodeWatchItem($watch))->values()->all(),
@@ -104,11 +113,12 @@ class MediaDetailService
             'title' => $episode->title ?: 'Untitled episode',
             'subtitle' => $this->episodeSubtitle($episode),
             'meta' => $episode->runtime > 0 ? $episode->runtime.' min episode' : 'Episode',
-            'poster' => $episode->show?->poster_url ?? '',
-            'backdrop' => $episode->show?->fanart_url ?? '',
+            'poster' => $this->posterFor($episode, $episode->show?->poster_url),
+            'backdrop' => $this->backdropFor($episode, $episode->show?->fanart_url),
             'status' => $watches->isNotEmpty() ? 'watched' : 'library',
             'watched' => $watches->isNotEmpty(),
             'watchedCount' => $watches->count(),
+            'metadata' => $this->metadataFields($episode, $episode->air_date),
             'rating' => $this->rating($user, 'episode', $episode->id),
             'notes' => $this->notes($user, 'episode', $episode->id),
             'watchHistory' => $watches->map(fn (EpisodeWatch $watch): array => $this->episodeWatchItem($watch))->values()->all(),
@@ -219,6 +229,57 @@ class MediaDetailService
             'linked' => $count > 0,
             'linkedItemsCount' => $count,
         ];
+    }
+
+    private function posterFor(mixed $media, ?string $fallback = ''): string
+    {
+        return $this->metadata->imageUrl($media->poster_path ?? null) ?: ($fallback ?? '');
+    }
+
+    private function backdropFor(mixed $media, ?string $fallback = ''): string
+    {
+        return $this->metadata->imageUrl($media->backdrop_path ?? null, 'w780') ?: ($fallback ?? '');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function metadataFields(mixed $media, mixed $date): array
+    {
+        $genres = collect($media->genres ?? [])
+            ->map(fn (mixed $genre): ?string => is_array($genre) ? ($genre['name'] ?? null) : null)
+            ->filter()
+            ->values()
+            ->all();
+        $metadataStatus = $media->metadata_refreshed_at ? 'enriched' : 'local';
+
+        return [
+            'genres' => $genres,
+            'releaseYear' => $this->yearFromDate($date),
+            'runtime' => (int) ($media->runtime ?? 0) ?: null,
+            'status' => $media->status ?? null,
+            'tmdbId' => $media->tmdb_id ?? null,
+            'imdbId' => $media->imdb_id ?? null,
+            'tvdbId' => $media->tvdb_id ?? null,
+            'metadataStatus' => $metadataStatus,
+        ];
+    }
+
+    private function yearFromDate(mixed $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        if ($value instanceof CarbonInterface) {
+            return $value->format('Y');
+        }
+
+        try {
+            return CarbonImmutable::parse((string) $value)->format('Y');
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function episodeSubtitle(Episode $episode): string

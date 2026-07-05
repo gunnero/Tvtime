@@ -97,6 +97,32 @@ The player service validates the whole ownership graph for source items, media l
 
 The frontend Player tab now uses these APIs for user-owned provider attach/manage, manual source-item creation, item search, manual link/unlink confirmation, HTML5/HLS playback, progress saving, and completion tracking. HLS support uses the frontend `hls.js` fallback where native browser playback is unavailable; no stream catalog or stream provider is bundled with MediaHub.
 
+## TMDB Metadata
+
+TMDB metadata enrichment is optional and disabled by default. Configure only private runtime `.env` values:
+
+```dotenv
+TMDB_ENABLED=false
+TMDB_API_KEY=
+TMDB_TIMEOUT=20
+TMDB_CACHE_TTL=86400
+```
+
+Do not commit real TMDB keys. The client caches safe public TMDB responses, uses timeouts, returns safe failures, and never logs API keys. When disabled or failing, enrichment commands skip/fail gracefully and the app continues using local canonical data.
+
+Commands:
+
+```bash
+php artisan mediahub:enrich-movie {movie_id}
+php artisan mediahub:enrich-show {show_id}
+php artisan mediahub:enrich-user {user_id}
+php artisan mediahub:metadata-status {user_id}
+```
+
+Output is limited to counts: searched, matched, enriched, skipped, and failed. Metadata fields are additive on `movies`, `shows`, and `episodes`: TMDB/IMDb/TVDB IDs, original title, overview, poster/backdrop paths, release/air dates, genres, runtime, status, vote average, metadata JSON, and `metadata_refreshed_at`.
+
+Dashboard and detail payloads may include public metadata and TMDB image URLs. They must never expose stream URLs, playlist URLs, provider credentials, API keys, or private provider settings.
+
 ## Ratings And Notes
 
 Users can rate movies, shows, and episodes from 1 to 10. Users can add private notes to movies, shows, and episodes. Ratings and notes are always user-scoped and survive provider changes or provider deletion.
@@ -117,7 +143,7 @@ php artisan mediahub:backup-user {user_id}
 php artisan mediahub:restore-user {user_id} storage/app/private/mediahub-backups/user-{user_id}-YYYYMMDD-HHMMSS.json
 ```
 
-Backups include canonical library data, watches, ratings, notes, safe media links, and safe progress. Backups exclude stream URLs, playlist URLs, provider credentials, API keys, provider settings, and secrets by default. Restore paths are accepted only from `storage/app/private/mediahub-backups`.
+Backups include canonical library data, public metadata, watches, ratings, notes, safe media links, and safe progress. Backups exclude stream URLs, playlist URLs, provider credentials, API keys, provider settings, and secrets by default. Restore paths are accepted only from `storage/app/private/mediahub-backups`.
 
 ## Import Existing Data
 
@@ -162,7 +188,7 @@ Only active `owner` and `admin` users can access the Filament panel. Imported me
 php artisan test
 ```
 
-The feature tests cover status readiness, invite acceptance, login/logout, `/me`, unauthenticated private API access, empty and imported dashboard payloads, alert read persistence, analytics events, audit logs, import validation, player/provider ownership, manual tracking without a provider, provider auto-tracking, provider deletion preserving watch history/ratings/notes, backup/restore, dashboard URL safety, manual library detail/rating/note/watch APIs, and cross-user isolation.
+The feature tests cover status readiness, invite acceptance, login/logout, `/me`, unauthenticated private API access, empty and imported dashboard payloads, alert read persistence, analytics events, audit logs, import validation, player/provider ownership, manual tracking without a provider, provider auto-tracking, provider deletion preserving watch history/ratings/notes, backup/restore, dashboard URL safety, TMDB disabled/failure/enrichment behavior, manual library detail/rating/note/watch APIs, and cross-user isolation.
 
 ## Deployment Checklist
 
