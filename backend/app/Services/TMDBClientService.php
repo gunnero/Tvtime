@@ -9,9 +9,22 @@ use Throwable;
 
 class TMDBClientService
 {
+    /**
+     * @var array{endpoint:string,status:int|null,reason:string}|null
+     */
+    private ?array $lastFailure = null;
+
     public function enabled(): bool
     {
         return (bool) config('tmdb.enabled') && filled(config('tmdb.api_key'));
+    }
+
+    /**
+     * @return array{endpoint:string,status:int|null,reason:string}|null
+     */
+    public function lastFailure(): ?array
+    {
+        return $this->lastFailure;
     }
 
     /**
@@ -92,6 +105,7 @@ class TMDBClientService
             return null;
         }
 
+        $this->lastFailure = null;
         $cacheKey = 'tmdb:'.sha1($path.'|'.json_encode($params, JSON_THROW_ON_ERROR));
         $ttl = max(60, (int) config('tmdb.cache_ttl', 86400));
 
@@ -104,12 +118,22 @@ class TMDBClientService
                         'api_key' => config('tmdb.api_key'),
                     ]);
             } catch (Throwable) {
+                $this->lastFailure = [
+                    'endpoint' => $path,
+                    'status' => null,
+                    'reason' => 'request_failed',
+                ];
                 Log::warning('TMDB request failed.', ['endpoint' => $path]);
 
                 return null;
             }
 
             if (! $response->ok()) {
+                $this->lastFailure = [
+                    'endpoint' => $path,
+                    'status' => $response->status(),
+                    'reason' => 'http_status',
+                ];
                 Log::warning('TMDB request returned non-success status.', [
                     'endpoint' => $path,
                     'status' => $response->status(),

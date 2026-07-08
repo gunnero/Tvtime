@@ -31,6 +31,10 @@ class Episode extends Model
         'vote_average',
         'metadata',
         'metadata_refreshed_at',
+        'last_metadata_failure_reason',
+        'metadata_failed_at',
+        'metadata_failure_count',
+        'metadata_review_status',
     ];
 
     public function user(): BelongsTo
@@ -65,6 +69,8 @@ class Episode extends Model
             'vote_average' => 'float',
             'metadata' => 'array',
             'metadata_refreshed_at' => 'datetime',
+            'metadata_failed_at' => 'datetime',
+            'metadata_failure_count' => 'integer',
         ];
     }
 }

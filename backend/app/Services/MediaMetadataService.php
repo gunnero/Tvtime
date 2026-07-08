@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\MediaEventSource;
 use App\Enums\MediaEventType;
+use App\Enums\MetadataReviewStatus;
 use App\Models\Episode;
 use App\Models\Movie;
 use App\Models\Show;
@@ -16,6 +17,8 @@ use Throwable;
 
 class MediaMetadataService
 {
+    public const EPISODE_FAILURE_THRESHOLD = 3;
+
     public function __construct(
         private readonly TMDBClientService $tmdb,
         private readonly MediaEventService $mediaEvents,
@@ -260,6 +263,8 @@ class MediaMetadataService
         $details = $this->tmdb->getEpisode((int) $show->tmdb_id, (int) $episode->season_number, (int) $episode->episode_number);
 
         if (! $details) {
+            $this->trackEpisodeFailure($episode, $this->metadataFailureReason($this->tmdb->lastFailure()));
+
             return $this->summary(failed: 1);
         }
 
@@ -276,6 +281,52 @@ class MediaMetadataService
         ], MediaEventSource::Metadata);
 
         return $this->summary(matched: 1, enriched: 1);
+    }
+
+    /**
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     */
+    public function matchEpisode(Episode $episode, int $tmdbSeason, int $tmdbEpisode): array
+    {
+        if (! $this->tmdb->enabled()) {
+            return $this->summary(planned: 1, skipped: 1);
+        }
+
+        $episode->loadMissing('show');
+        $show = $episode->show;
+
+        if (! $show?->tmdb_id || $tmdbSeason < 1 || $tmdbEpisode < 1) {
+            return $this->summary(planned: 1, failed: 1);
+        }
+
+        $details = $this->tmdb->getEpisode((int) $show->tmdb_id, $tmdbSeason, $tmdbEpisode);
+
+        if (! $details) {
+            $this->trackEpisodeFailure($episode, $this->metadataFailureReason($this->tmdb->lastFailure()));
+
+            return $this->summary(planned: 1, failed: 1);
+        }
+
+        $this->applyEpisodeDetails($episode, $details, [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'manual',
+            'tmdb_season' => $tmdbSeason,
+            'tmdb_episode' => $tmdbEpisode,
+        ], MetadataReviewStatus::ManuallyMatched);
+        $this->mediaEvents->record($episode->user, MediaEventType::MetadataEnriched, $episode, [
+            'title' => $episode->title,
+            'media_type' => 'episode',
+            'show_id' => $episode->show_id,
+            'tmdb_id' => $episode->tmdb_id,
+            'match' => [
+                'source' => 'tmdb',
+                'confidence' => 1.0,
+                'method' => 'manual',
+            ],
+        ], MediaEventSource::Metadata);
+
+        return $this->summary(planned: 1, matched: 1, enriched: 1);
     }
 
     /**
@@ -304,6 +355,7 @@ class MediaMetadataService
             ->whereHas('show', fn (Builder $query) => $query->whereNotNull('tmdb_id'))
             ->where('season_number', '>', 0)
             ->where('episode_number', '>', 0);
+        $eligibleEpisodes = $this->reviewableEpisodeFilter($eligibleEpisodes);
 
         return [
             'movies_total' => Movie::forUser($user)->count(),
@@ -412,7 +464,7 @@ class MediaMetadataService
      * @param  array<string, mixed>  $details
      * @param  array<string, mixed>|null  $match
      */
-    private function applyEpisodeDetails(Episode $episode, array $details, ?array $match): void
+    private function applyEpisodeDetails(Episode $episode, array $details, ?array $match, MetadataReviewStatus $reviewStatus = MetadataReviewStatus::Pending): void
     {
         $externalIds = is_array($details['external_ids'] ?? null) ? $details['external_ids'] : [];
 
@@ -429,6 +481,10 @@ class MediaMetadataService
             'vote_average' => $this->floatOrNull($details['vote_average'] ?? null),
             'metadata' => $this->metadata($episode->metadata ?? [], $match, 'episode'),
             'metadata_refreshed_at' => now(),
+            'last_metadata_failure_reason' => null,
+            'metadata_failed_at' => null,
+            'metadata_failure_count' => 0,
+            'metadata_review_status' => $reviewStatus->value,
         ])->save();
     }
 
@@ -627,7 +683,51 @@ class MediaMetadataService
         return $query
             ->whereHas('show', fn (Builder $query) => $query->whereNotNull('tmdb_id'))
             ->where('season_number', '>', 0)
-            ->where('episode_number', '>', 0);
+            ->where('episode_number', '>', 0)
+            ->where(fn (Builder $query) => $this->reviewableEpisodeFilter($query));
+    }
+
+    /**
+     * @param  Builder<Episode>  $query
+     * @return Builder<Episode>
+     */
+    private function reviewableEpisodeFilter(Builder $query): Builder
+    {
+        return $query
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('metadata_review_status')
+                    ->orWhere('metadata_review_status', '!=', MetadataReviewStatus::Ignored->value);
+            })
+            ->where(function (Builder $query): void {
+                $query
+                    ->where('last_metadata_failure_reason', '!=', 'tmdb_404')
+                    ->orWhereNull('last_metadata_failure_reason')
+                    ->orWhere('metadata_failure_count', '<', self::EPISODE_FAILURE_THRESHOLD);
+            });
+    }
+
+    /**
+     * @param  array{endpoint:string,status:int|null,reason:string}|null  $failure
+     */
+    private function metadataFailureReason(?array $failure): string
+    {
+        return match ($failure['status'] ?? null) {
+            404 => 'tmdb_404',
+            429 => 'tmdb_rate_limited',
+            null => 'tmdb_unavailable',
+            default => 'tmdb_http_'.(int) $failure['status'],
+        };
+    }
+
+    private function trackEpisodeFailure(Episode $episode, string $reason): void
+    {
+        $episode->forceFill([
+            'last_metadata_failure_reason' => $reason,
+            'metadata_failed_at' => now(),
+            'metadata_failure_count' => max(0, (int) $episode->metadata_failure_count) + 1,
+            'metadata_review_status' => $episode->metadata_review_status ?: MetadataReviewStatus::Pending->value,
+        ])->save();
     }
 
     /**

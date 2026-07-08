@@ -660,6 +660,160 @@ class TmdbMetadataTest extends TestCase
         $this->assertStringNotContainsString('stream_url', json_encode($event->metadata, JSON_THROW_ON_ERROR));
     }
 
+    public function test_repeated_episode_404_is_tracked_and_removed_from_bulk_eligible_queue(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Matched Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $episode = Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'season_number' => 1,
+            'episode_number' => 99,
+            'title' => 'Missing Episode',
+        ]);
+        Http::fake([
+            'api.themoviedb.org/3/tv/123/season/1/episode/99*' => Http::response(['status_message' => 'not found'], 404),
+        ]);
+
+        app(MediaMetadataService::class)->enrichEpisode($episode);
+        app(MediaMetadataService::class)->enrichEpisode($episode->refresh());
+        $summary = app(MediaMetadataService::class)->enrichEpisode($episode->refresh());
+
+        $episode->refresh();
+        $this->assertSame(1, $summary['failed']);
+        $this->assertSame(3, $episode->metadata_failure_count);
+        $this->assertSame('tmdb_404', $episode->last_metadata_failure_reason);
+        $this->assertSame('pending', $episode->metadata_review_status);
+        $this->assertNotNull($episode->metadata_failed_at);
+
+        $this->artisan('mediahub:metadata-status', ['user_id' => $user->id])
+            ->expectsOutput('episodes_eligible_for_enrichment: 0')
+            ->assertExitCode(0);
+    }
+
+    public function test_ignored_episode_is_excluded_from_eligible_queue(): void
+    {
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Matched Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $episode = Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'season_number' => 1,
+            'episode_number' => 2,
+            'title' => 'Ignored Episode',
+        ]);
+
+        $this->artisan('mediahub:metadata-ignore-episode', ['episode_id' => $episode->id])
+            ->expectsOutput('episode_id: '.$episode->id)
+            ->expectsOutput('metadata_review_status: ignored')
+            ->assertExitCode(0);
+
+        $this->assertSame('ignored', $episode->refresh()->metadata_review_status);
+        $this->artisan('mediahub:metadata-status', ['user_id' => $user->id])
+            ->expectsOutput('episodes_eligible_for_enrichment: 0')
+            ->assertExitCode(0);
+    }
+
+    public function test_manual_episode_match_stores_metadata_and_marks_review_status(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Matched Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $episode = Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'season_number' => 1,
+            'episode_number' => 99,
+            'title' => 'Wrong Number',
+            'metadata_failure_count' => 3,
+            'last_metadata_failure_reason' => 'tmdb_404',
+            'metadata_failed_at' => now(),
+        ]);
+        Http::fake([
+            'api.themoviedb.org/3/tv/123/season/1/episode/9*' => Http::response([
+                'id' => 999,
+                'name' => 'Manual Episode',
+                'overview' => 'Manually selected episode metadata.',
+                'runtime' => 44,
+                'external_ids' => [],
+            ]),
+        ]);
+
+        $this->artisan('mediahub:match-episode', [
+            'episode_id' => $episode->id,
+            '--tmdb-season' => 1,
+            '--tmdb-episode' => 9,
+        ])
+            ->expectsOutput('episode_id: '.$episode->id)
+            ->expectsOutput('tmdb_id: 999')
+            ->expectsOutput('match_method: manual')
+            ->assertExitCode(0);
+
+        $episode->refresh();
+        $this->assertSame(999, $episode->tmdb_id);
+        $this->assertSame('Manual Episode', $episode->original_title);
+        $this->assertSame('manually_matched', $episode->metadata_review_status);
+        $this->assertSame(0, $episode->metadata_failure_count);
+        $this->assertNull($episode->last_metadata_failure_reason);
+        $this->assertNull($episode->metadata_failed_at);
+    }
+
+    public function test_metadata_review_queue_outputs_safe_grouped_summary(): void
+    {
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Queue Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'season_number' => 2,
+            'episode_number' => 14,
+            'title' => 'Private title should not be printed',
+            'metadata_failure_count' => 3,
+            'last_metadata_failure_reason' => 'tmdb_404',
+            'metadata_failed_at' => now(),
+        ]);
+        Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'season_number' => 2,
+            'episode_number' => 15,
+            'title' => 'Another private title',
+            'metadata_failure_count' => 3,
+            'last_metadata_failure_reason' => 'tmdb_404',
+            'metadata_failed_at' => now(),
+        ]);
+
+        $this->artisan('mediahub:metadata-review-queue', ['user_id' => $user->id])
+            ->expectsOutput('review_groups: 1')
+            ->expectsOutput('show_id: '.$show->id.' | show: Queue Show | season: 2 | reason: tmdb_404 | count: 2')
+            ->doesntExpectOutput('Private title should not be printed')
+            ->doesntExpectOutput('Another private title')
+            ->assertExitCode(0);
+    }
+
     private function member(string $email = 'member@example.test'): User
     {
         return User::factory()->create([
