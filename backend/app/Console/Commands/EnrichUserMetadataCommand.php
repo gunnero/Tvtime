@@ -13,6 +13,7 @@ class EnrichUserMetadataCommand extends Command
         {--type=all : Metadata type to enrich: movies, shows, episodes, or all}
         {--limit= : Maximum number of records to process}
         {--only-missing : Only process records without refreshed TMDB metadata}
+        {--only-parent-enriched : For episode enrichment, only process episodes whose parent show has TMDB metadata}
         {--dry-run : Count eligible records without calling TMDB or writing data}
         {--sleep-ms=0 : Milliseconds to pause between records}
         {--min-confidence=0 : Minimum title-match confidence from 0 to 1}';
@@ -41,7 +42,7 @@ class EnrichUserMetadataCommand extends Command
     }
 
     /**
-     * @return array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}|null
+     * @return array{type:string,limit:int|null,only_missing:bool,only_parent_enriched:bool,dry_run:bool,sleep_ms:int,min_confidence:float}|null
      */
     private function serviceOptions(): ?array
     {
@@ -81,6 +82,7 @@ class EnrichUserMetadataCommand extends Command
             'type' => $type,
             'limit' => $limit === null ? null : (int) $limit,
             'only_missing' => (bool) $this->option('only-missing'),
+            'only_parent_enriched' => (bool) $this->option('only-parent-enriched'),
             'dry_run' => (bool) $this->option('dry-run'),
             'sleep_ms' => (int) $sleepMs,
             'min_confidence' => (float) $minConfidence,

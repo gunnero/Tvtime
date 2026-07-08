@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Episode;
+use App\Models\EpisodeWatch;
 use App\Models\MediaLink;
+use App\Models\MediaEvent;
 use App\Models\Movie;
 use App\Models\MovieWatch;
 use App\Models\PlaybackSource;
@@ -377,6 +379,193 @@ class TmdbMetadataTest extends TestCase
 
         $this->assertNull($movie->refresh()->tmdb_id);
         Http::assertSentCount(1);
+    }
+
+    public function test_episode_enrichment_can_skip_episodes_without_parent_tmdb_before_calling_tmdb(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $matchedShow = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Matched Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $unmatchedShow = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Unmatched Show',
+        ]);
+        $eligibleEpisode = Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $matchedShow->id,
+            'season_number' => 1,
+            'episode_number' => 1,
+            'title' => 'Pilot',
+        ]);
+        $blockedEpisode = Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $unmatchedShow->id,
+            'season_number' => 1,
+            'episode_number' => 1,
+            'title' => 'Blocked',
+        ]);
+
+        Http::fake([
+            'api.themoviedb.org/3/tv/123/season/1/episode/1*' => Http::response([
+                'id' => 456,
+                'name' => 'Pilot',
+                'overview' => 'A matched episode.',
+                'runtime' => 42,
+                'external_ids' => [],
+            ]),
+        ]);
+
+        $this->artisan('mediahub:enrich-user', [
+            'user_id' => $user->id,
+            '--type' => 'episodes',
+            '--only-missing' => true,
+            '--only-parent-enriched' => true,
+            '--limit' => 100,
+        ])
+            ->expectsOutput('planned: 1')
+            ->expectsOutput('enriched: 1')
+            ->expectsOutput('skipped: 0')
+            ->assertExitCode(0);
+
+        $this->assertSame(456, $eligibleEpisode->refresh()->tmdb_id);
+        $this->assertNull($blockedEpisode->refresh()->tmdb_id);
+        Http::assertSentCount(1);
+    }
+
+    public function test_metadata_status_includes_episode_blocked_and_eligible_breakdown(): void
+    {
+        $user = $this->member();
+        $matchedShow = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Matched Show',
+            'tmdb_id' => 123,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $unmatchedShow = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Unmatched Show',
+        ]);
+        Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $matchedShow->id,
+            'season_number' => 1,
+            'episode_number' => 1,
+            'title' => 'Enriched',
+            'tmdb_id' => 456,
+            'metadata_refreshed_at' => now(),
+        ]);
+        Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $matchedShow->id,
+            'season_number' => 1,
+            'episode_number' => 2,
+            'title' => 'Eligible',
+        ]);
+        Episode::create([
+            'user_id' => $user->id,
+            'show_id' => $unmatchedShow->id,
+            'season_number' => 1,
+            'episode_number' => 1,
+            'title' => 'Blocked',
+        ]);
+
+        $this->artisan('mediahub:metadata-status', ['user_id' => $user->id])
+            ->expectsOutput('episodes_total: 3')
+            ->expectsOutput('episodes_enriched: 1')
+            ->expectsOutput('episodes_missing_metadata: 2')
+            ->expectsOutput('episodes_blocked_parent_unmatched: 1')
+            ->expectsOutput('episodes_eligible_for_enrichment: 1')
+            ->assertExitCode(0);
+    }
+
+    public function test_unmatched_show_review_outputs_safe_summary_only(): void
+    {
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Unmatched Show',
+            'seen_episodes' => 2,
+            'aired_episodes' => 10,
+            'latest_seen_at' => '2026-07-01 12:00:00',
+        ]);
+        EpisodeWatch::create([
+            'user_id' => $user->id,
+            'show_id' => $show->id,
+            'episode_id' => Episode::create([
+                'user_id' => $user->id,
+                'show_id' => $show->id,
+                'season_number' => 1,
+                'episode_number' => 1,
+                'title' => 'Episode 1',
+            ])->id,
+            'watched_at' => '2026-07-02 12:00:00',
+            'runtime' => 42,
+            'source' => 'manual',
+        ]);
+
+        $this->artisan('mediahub:metadata-unmatched-shows', ['user_id' => $user->id])
+            ->expectsOutput('unmatched_shows: 1')
+            ->expectsOutput('show_id: '.$show->id.' | title: Unmatched Show | watched_episodes: 1 | aired_episodes: 10 | latest_watched_at: 2026-07-02 | match_status: unmatched')
+            ->assertExitCode(0);
+    }
+
+    public function test_manual_show_match_stores_metadata_and_records_safe_event(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $show = Show::create([
+            'user_id' => $user->id,
+            'title' => 'Manual Match',
+        ]);
+        $otherUser = $this->member('manual-other@example.test');
+        $otherShow = Show::create([
+            'user_id' => $otherUser->id,
+            'title' => 'Manual Match',
+        ]);
+
+        Http::fake([
+            'api.themoviedb.org/3/tv/95396*' => Http::response([
+                'id' => 95396,
+                'name' => 'Manual Match',
+                'original_name' => 'Manual Match',
+                'overview' => 'Manually selected metadata.',
+                'poster_path' => '/manual-poster.jpg',
+                'backdrop_path' => '/manual-backdrop.jpg',
+                'first_air_date' => '2022-02-18',
+                'genres' => [['id' => 18, 'name' => 'Drama']],
+                'episode_run_time' => [50],
+                'status' => 'Returning Series',
+                'vote_average' => 8.4,
+                'external_ids' => ['imdb_id' => 'tt11280740', 'tvdb_id' => 371980],
+            ]),
+        ]);
+
+        $this->artisan('mediahub:match-show', [
+            'show_id' => $show->id,
+            '--tmdb-id' => 95396,
+        ])
+            ->expectsOutput('show_id: '.$show->id)
+            ->expectsOutput('tmdb_id: 95396')
+            ->expectsOutput('match_method: manual')
+            ->assertExitCode(0);
+
+        $show->refresh();
+        $this->assertSame(95396, $show->tmdb_id);
+        $this->assertSame('/manual-poster.jpg', $show->poster_path);
+        $this->assertSame('manual', $show->metadata['match']['method']);
+        $this->assertEquals(1.0, $show->metadata['match']['confidence']);
+        $this->assertNull($otherShow->refresh()->tmdb_id);
+        $event = MediaEvent::forUser($user)->where('subject_id', $show->id)->firstOrFail();
+        $this->assertSame('metadata.enriched', $event->event_type);
+        $this->assertSame('metadata', $event->source);
+        $this->assertStringNotContainsString('stream_url', json_encode($event->metadata, JSON_THROW_ON_ERROR));
     }
 
     private function member(string $email = 'member@example.test'): User

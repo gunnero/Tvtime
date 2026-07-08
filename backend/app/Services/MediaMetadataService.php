@@ -151,6 +151,38 @@ class MediaMetadataService
     }
 
     /**
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     */
+    public function matchShow(Show $show, int $tmdbId): array
+    {
+        if (! $this->tmdb->enabled()) {
+            return $this->summary(planned: 1, skipped: 1);
+        }
+
+        $details = $this->tmdb->getShow($tmdbId);
+
+        if (! $details) {
+            return $this->summary(planned: 1, failed: 1);
+        }
+
+        $match = [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'manual',
+        ];
+
+        $this->applyShowDetails($show, $details, $match);
+        $this->mediaEvents->record($show->user, MediaEventType::MetadataEnriched, $show, [
+            'title' => $show->title,
+            'media_type' => 'show',
+            'tmdb_id' => $show->tmdb_id,
+            'match' => $match,
+        ], MediaEventSource::Metadata);
+
+        return $this->summary(planned: 1, matched: 1, enriched: 1);
+    }
+
+    /**
      * @param  array<string, mixed>  $options
      * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
@@ -191,7 +223,7 @@ class MediaMetadataService
         }
 
         if (in_array($options['type'], ['episodes', 'all'], true) && $this->hasRemaining($remaining)) {
-            $episodes = $this->limitedQuery($this->missingFilter(Episode::forUser($user)->with('show'), $options), $remaining)
+            $episodes = $this->limitedQuery($this->episodeParentFilter($this->missingFilter(Episode::forUser($user)->with('show'), $options), $options), $remaining)
                 ->whereNotNull('season_number')
                 ->whereNotNull('episode_number')
                 ->orderBy('show_id')
@@ -253,6 +285,18 @@ class MediaMetadataService
      */
     public function statusForUser(User $user): array
     {
+        $missingEpisodes = Episode::forUser($user)->where(function (Builder $query): void {
+            $query
+                ->whereNull('tmdb_id')
+                ->orWhereNull('metadata_refreshed_at');
+        });
+        $blockedByParent = (clone $missingEpisodes)
+            ->whereDoesntHave('show', fn (Builder $query) => $query->whereNotNull('tmdb_id'));
+        $eligibleEpisodes = (clone $missingEpisodes)
+            ->whereHas('show', fn (Builder $query) => $query->whereNotNull('tmdb_id'))
+            ->whereNotNull('season_number')
+            ->whereNotNull('episode_number');
+
         return [
             'movies_total' => Movie::forUser($user)->count(),
             'movies_enriched' => Movie::forUser($user)->whereNotNull('tmdb_id')->count(),
@@ -260,6 +304,9 @@ class MediaMetadataService
             'shows_enriched' => Show::forUser($user)->whereNotNull('tmdb_id')->count(),
             'episodes_total' => Episode::forUser($user)->count(),
             'episodes_enriched' => Episode::forUser($user)->whereNotNull('tmdb_id')->count(),
+            'episodes_missing_metadata' => (clone $missingEpisodes)->count(),
+            'episodes_blocked_parent_unmatched' => $blockedByParent->count(),
+            'episodes_eligible_for_enrichment' => $eligibleEpisodes->count(),
         ];
     }
 
@@ -511,7 +558,7 @@ class MediaMetadataService
 
     /**
      * @param  array<string, mixed>  $options
-     * @return array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}
+     * @return array{type:string,limit:int|null,only_missing:bool,only_parent_enriched:bool,dry_run:bool,sleep_ms:int,min_confidence:float}
      */
     private function normalizeOptions(array $options): array
     {
@@ -532,6 +579,7 @@ class MediaMetadataService
             'type' => $type,
             'limit' => $limit,
             'only_missing' => (bool) ($options['only_missing'] ?? false),
+            'only_parent_enriched' => (bool) ($options['only_parent_enriched'] ?? false),
             'dry_run' => (bool) ($options['dry_run'] ?? false),
             'sleep_ms' => $sleepMs,
             'min_confidence' => $minConfidence,
@@ -540,7 +588,7 @@ class MediaMetadataService
 
     /**
      * @param  Builder<Movie|Show|Episode>  $query
-     * @param  array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
+     * @param  array{type:string,limit:int|null,only_missing:bool,only_parent_enriched:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
      * @return Builder<Movie|Show|Episode>
      */
     private function missingFilter(Builder $query, array $options): Builder
@@ -553,7 +601,21 @@ class MediaMetadataService
             $query
                 ->whereNull('tmdb_id')
                 ->orWhereNull('metadata_refreshed_at');
-        });
+            });
+    }
+
+    /**
+     * @param  Builder<Movie|Show|Episode>  $query
+     * @param  array{type:string,limit:int|null,only_missing:bool,only_parent_enriched:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
+     * @return Builder<Movie|Show|Episode>
+     */
+    private function episodeParentFilter(Builder $query, array $options): Builder
+    {
+        if (! $options['only_parent_enriched']) {
+            return $query;
+        }
+
+        return $query->whereHas('show', fn (Builder $query) => $query->whereNotNull('tmdb_id'));
     }
 
     /**
@@ -582,7 +644,7 @@ class MediaMetadataService
     }
 
     /**
-     * @param  array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
+     * @param  array{type:string,limit:int|null,only_missing:bool,only_parent_enriched:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
      */
     private function sleepBetweenRecords(array $options): void
     {
