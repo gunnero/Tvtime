@@ -31,11 +31,14 @@ Known staging layout:
 - app checkout: `/home/razbudise/ccc.razbudise.mk/app`
 - Laravel app: `/home/razbudise/ccc.razbudise.mk/app/backend`
 - Laravel public root: `/home/razbudise/ccc.razbudise.mk/app/backend/public`
+- React build staging directory: `/home/razbudise/ccc.razbudise.mk/app/dist`
 - backups: `/home/razbudise/ccc.razbudise.mk/backups`
 - private imports: `/home/razbudise/ccc.razbudise.mk/app/backend/storage/app/imports`
 - safe user backups: `/home/razbudise/ccc.razbudise.mk/app/backend/storage/app/private/mediahub-backups`
 
-The frontend build target is configurable with `MEDIAHUB_FRONTEND_PUBLIC_DIR`. The default keeps the Vite build in `/home/razbudise/ccc.razbudise.mk/app/dist`; set this variable if Apache serves built assets from a different static directory.
+The frontend build target is configurable with `MEDIAHUB_FRONTEND_PUBLIC_DIR`. The default is `/home/razbudise/ccc.razbudise.mk/app/backend/public`, because Apache serves the Laravel public root. Vite still builds into `/home/razbudise/ccc.razbudise.mk/app/dist`; the deploy script then copies only `dist/index.html` and `dist/assets/*` into `backend/public`.
+
+The frontend sync must preserve Laravel public files. It must not overwrite `backend/public/index.php`, `backend/public/.htaccess`, `robots.txt`, `favicon.ico`, `site.webmanifest`, or existing Laravel/Filament/Livewire public assets.
 
 ## Apache Contract
 
@@ -61,8 +64,8 @@ Do not remove Basic Auth until the user explicitly approves it.
 6. Pull the latest `origin/main` on the server.
 7. Run production Composer install.
 8. Run Laravel migrations and caches.
-9. Build the React/Vite frontend.
-10. Sync frontend assets if `MEDIAHUB_FRONTEND_PUBLIC_DIR` points outside `dist`.
+9. Build the React/Vite frontend into `app/dist`.
+10. Sync React `index.html` and built assets into `backend/public` without deleting Laravel public files.
 11. Run `apachectl configtest`.
 12. Reload Apache.
 13. Run live smoke checks.
@@ -127,7 +130,7 @@ The scripts are configurable through environment variables, so secrets never nee
 | `MEDIAHUB_SERVER_SITE_ROOT` | `/home/razbudise/ccc.razbudise.mk` |
 | `MEDIAHUB_SERVER_APP_DIR` | `$MEDIAHUB_SERVER_SITE_ROOT/app` |
 | `MEDIAHUB_SERVER_BACKUP_ROOT` | `$MEDIAHUB_SERVER_SITE_ROOT/backups` |
-| `MEDIAHUB_FRONTEND_PUBLIC_DIR` | `$MEDIAHUB_SERVER_APP_DIR/dist` |
+| `MEDIAHUB_FRONTEND_PUBLIC_DIR` | `$MEDIAHUB_SERVER_APP_DIR/backend/public` |
 | `MEDIAHUB_LIVE_URL` | `https://ccc.razbudise.mk` |
 | `MEDIAHUB_PHP_FPM_SERVICE` | empty |
 | `MEDIAHUB_RELOAD_APACHE` | `true` |
@@ -139,6 +142,12 @@ Optional smoke-test variables:
 - `MEDIAHUB_APP_EMAIL`
 - `MEDIAHUB_APP_PASSWORD`
 
-## Open Operational Question
+## Frontend Sync Verification
 
-Confirm the exact Apache frontend build target on `web01`. If Apache serves React from a path other than `app/dist`, set `MEDIAHUB_FRONTEND_PUBLIC_DIR` in the shell or a private local deploy env file before running the deploy script.
+After each deploy, verify:
+
+- `backend/public/index.html` exists and references the newest built asset hash.
+- `backend/public/assets/` contains the newest Vite `.js` and `.css` files.
+- `backend/public/index.php` still exists.
+- `/api/v1/status` still routes to Laravel.
+- Basic Auth and `X-Robots-Tag` noindex are still enabled.

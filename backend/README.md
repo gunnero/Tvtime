@@ -222,7 +222,7 @@ The feature tests cover status readiness, invite acceptance, login/logout, `/me`
 
 ## Deployment Checklist
 
-Do not deploy private files. Keep Apache Basic Auth enabled on staging. After code is reviewed on the server, configure `.env`, run migrations with `php artisan migrate --force`, run `php artisan filament:assets` if Composer did not publish Filament assets, build frontend assets from the repo root, and smoke test `/api/v1/status`, login, `/api/v1/dashboard`, alert read actions, and `/admin`.
+Do not deploy private files. Keep Apache Basic Auth enabled on staging. After code is reviewed on the server, configure `.env`, run migrations with `php artisan migrate --force`, run `php artisan filament:assets` if Composer did not publish Filament assets, build frontend assets from the repo root, then sync only React `dist/index.html` and `dist/assets/*` into `backend/public`. Preserve Laravel `index.php`, `.htaccess`, `robots.txt`, favicon, and Laravel/Filament/Livewire assets. Smoke test `/api/v1/status`, login, `/api/v1/dashboard`, alert read actions, and `/admin`.
 
 ## Staging Deployment 2026-07-05
 

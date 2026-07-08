@@ -40,9 +40,12 @@ The script should:
 7. Run Laravel migrations.
 8. Rebuild Laravel caches.
 9. Build React.
-10. Run Apache config test.
-11. Reload Apache.
-12. Run smoke checks.
+10. Copy React `dist/index.html` and `dist/assets/*` into `backend/public` without deleting Laravel public files.
+11. Verify `backend/public/index.php` still exists.
+12. Verify `/api/v1/status` is still registered in Laravel.
+13. Run Apache config test.
+14. Reload Apache.
+15. Run smoke checks.
 
 ## After deploy
 
@@ -50,20 +53,23 @@ Verify:
 
 1. Unauthenticated `https://ccc.razbudise.mk/` returns 401.
 2. `X-Robots-Tag` contains `noindex`.
-3. Login works.
-4. Logout works.
-5. `/api/v1/status` works behind Basic Auth.
-6. `/api/v1/dashboard` loads after login.
-7. Entertainment diary renders.
-8. `/api/v1/media-events` and `/api/v1/media-events/recent` work after login.
-9. Detail modal opens.
-10. Rating save/clear works.
-11. Note save/update/delete works.
-12. Mark watched/unwatched works.
-13. Player tab loads.
-14. `/admin` loads for owner/admin.
-15. No browser console secrets are printed.
-16. Dashboard, timeline, and player list payloads do not expose stream/provider URLs.
+3. `backend/public/index.html` references the newest React build asset.
+4. `backend/public/assets/` contains the newest built `.js` and `.css` assets.
+5. `backend/public/index.php` still exists.
+6. Login works.
+7. Logout works.
+8. `/api/v1/status` works behind Basic Auth.
+9. `/api/v1/dashboard` loads after login.
+10. Entertainment diary renders.
+11. `/api/v1/media-events` and `/api/v1/media-events/recent` work after login.
+12. Detail modal opens.
+13. Rating save/clear works.
+14. Note save/update/delete works.
+15. Mark watched/unwatched works.
+16. Player tab loads.
+17. `/admin` loads for owner/admin.
+18. No browser console secrets are printed.
+19. Dashboard, timeline, and player list payloads do not expose stream/provider URLs.
 
 ## Rollback
 

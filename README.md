@@ -274,8 +274,9 @@ git diff --check
 5. Run `php artisan migrate --force`.
 6. Run `php artisan filament:assets` if Composer did not publish Filament assets.
 7. Build the React frontend with `npm run build`.
-8. Point the web server so `/api` and `/admin` hit Laravel and the SPA assets are served from the built frontend.
-9. Smoke test Basic Auth, Laravel login, `/api/v1/status`, `/api/v1/dashboard`, and `/admin`.
+8. Sync only `dist/index.html` and `dist/assets/*` into `backend/public`; keep `backend/public/index.php`, `.htaccess`, `robots.txt`, favicon, and Laravel/Filament/Livewire assets intact.
+9. Confirm `/api/v1/status` still routes through Laravel after the frontend sync.
+10. Smoke test Basic Auth, Laravel login, `/api/v1/status`, `/api/v1/dashboard`, and `/admin`.
 
 ## Staging Deployment 2026-07-05
 

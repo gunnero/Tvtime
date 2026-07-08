@@ -21,7 +21,7 @@ Useful environment variables:
   MEDIAHUB_SSH_USER=root
   MEDIAHUB_SSH_IDENTITY=$HOME/.ssh/123url_ed25519
   MEDIAHUB_SERVER_SITE_ROOT=/home/razbudise/ccc.razbudise.mk
-  MEDIAHUB_FRONTEND_PUBLIC_DIR=/home/razbudise/ccc.razbudise.mk/app/dist
+  MEDIAHUB_FRONTEND_PUBLIC_DIR=/home/razbudise/ccc.razbudise.mk/app/backend/public
   MEDIAHUB_LIVE_URL=https://ccc.razbudise.mk
 
 Optional smoke credentials:
@@ -73,7 +73,7 @@ SERVER_BACKUP_ROOT="${MEDIAHUB_SERVER_BACKUP_ROOT:-$SERVER_SITE_ROOT/backups}"
 SERVER_DB_PATH="${MEDIAHUB_SERVER_DB_PATH:-$SERVER_APP_DIR/backend/database/database.sqlite}"
 APACHE_CONF="${MEDIAHUB_APACHE_CONF:-/etc/apache2/sites-available/ccc.razbudise.mk.conf}"
 LIVE_URL="${MEDIAHUB_LIVE_URL:-https://ccc.razbudise.mk}"
-FRONTEND_PUBLIC_DIR="${MEDIAHUB_FRONTEND_PUBLIC_DIR:-$SERVER_APP_DIR/dist}"
+FRONTEND_PUBLIC_DIR="${MEDIAHUB_FRONTEND_PUBLIC_DIR:-$SERVER_APP_DIR/backend/public}"
 PHP_FPM_SERVICE="${MEDIAHUB_PHP_FPM_SERVICE:-}"
 RUN_APACHE_RELOAD="${MEDIAHUB_RELOAD_APACHE:-true}"
 
@@ -185,6 +185,46 @@ fail() {
   exit 1
 }
 
+sync_frontend_build() {
+  local js_count css_count
+
+  [[ -f "$SERVER_APP_DIR/dist/index.html" ]] || fail "React build is missing $SERVER_APP_DIR/dist/index.html"
+  [[ -d "$SERVER_APP_DIR/dist/assets" ]] || fail "React build is missing $SERVER_APP_DIR/dist/assets"
+
+  case "$FRONTEND_PUBLIC_DIR" in
+    ""|"/"|"$SERVER_APP_DIR"|"$SERVER_SITE_ROOT"|"$SERVER_APP_DIR/backend")
+      fail "Refusing unsafe frontend sync target: $FRONTEND_PUBLIC_DIR"
+      ;;
+  esac
+
+  if [[ "$FRONTEND_PUBLIC_DIR" == "$SERVER_APP_DIR/dist" ]]; then
+    log "Frontend build remains in $SERVER_APP_DIR/dist"
+    return 0
+  fi
+
+  log "Syncing React build into $FRONTEND_PUBLIC_DIR"
+  mkdir -p "$FRONTEND_PUBLIC_DIR/assets"
+
+  [[ -f "$FRONTEND_PUBLIC_DIR/index.php" ]] || fail "Laravel public index.php is missing before frontend sync"
+  [[ -f "$FRONTEND_PUBLIC_DIR/.htaccess" ]] || fail "Laravel public .htaccess is missing before frontend sync"
+
+  cp "$SERVER_APP_DIR/dist/index.html" "$FRONTEND_PUBLIC_DIR/index.html"
+  cp -a "$SERVER_APP_DIR/dist/assets/." "$FRONTEND_PUBLIC_DIR/assets/"
+
+  [[ -f "$FRONTEND_PUBLIC_DIR/index.php" ]] || fail "Laravel public index.php is missing after frontend sync"
+  [[ -f "$FRONTEND_PUBLIC_DIR/.htaccess" ]] || fail "Laravel public .htaccess is missing after frontend sync"
+  [[ -f "$FRONTEND_PUBLIC_DIR/index.html" ]] || fail "React index.html was not synced"
+
+  js_count="$(find "$FRONTEND_PUBLIC_DIR/assets" -maxdepth 1 -type f -name '*.js' | wc -l | tr -d '[:space:]')"
+  css_count="$(find "$FRONTEND_PUBLIC_DIR/assets" -maxdepth 1 -type f -name '*.css' | wc -l | tr -d '[:space:]')"
+
+  [[ "$js_count" -gt 0 ]] || fail "No built JavaScript assets found in $FRONTEND_PUBLIC_DIR/assets"
+  [[ "$css_count" -gt 0 ]] || fail "No built CSS assets found in $FRONTEND_PUBLIC_DIR/assets"
+
+  (cd "$SERVER_APP_DIR/backend" && php artisan route:list --path=api/v1/status --no-interaction) | grep -q 'api/v1/status' \
+    || fail "Laravel /api/v1/status route is missing after frontend sync"
+}
+
 timestamp="$(date +%Y%m%d%H%M%S)"
 backup_path="$SERVER_BACKUP_ROOT/$timestamp"
 
@@ -243,21 +283,7 @@ log "Building React frontend"
 cd "$SERVER_APP_DIR"
 npm ci
 npm run build -- --emptyOutDir
-
-if [[ "$FRONTEND_PUBLIC_DIR" != "$SERVER_APP_DIR/dist" ]]; then
-  case "$FRONTEND_PUBLIC_DIR" in
-    ""|"/"|"$SERVER_APP_DIR"|"$SERVER_SITE_ROOT")
-      fail "Refusing unsafe frontend sync target: $FRONTEND_PUBLIC_DIR"
-      ;;
-  esac
-
-  log "Syncing frontend dist to $FRONTEND_PUBLIC_DIR"
-  mkdir -p "$FRONTEND_PUBLIC_DIR"
-  find "$FRONTEND_PUBLIC_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  cp -a "$SERVER_APP_DIR/dist/." "$FRONTEND_PUBLIC_DIR/"
-else
-  log "Frontend build remains in $SERVER_APP_DIR/dist"
-fi
+sync_frontend_build
 
 log "Testing Apache configuration"
 apachectl configtest

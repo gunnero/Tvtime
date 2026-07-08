@@ -42,6 +42,27 @@ class DeploymentToolingTest(unittest.TestCase):
         for phrase in required_phrases:
             self.assertIn(phrase, script)
 
+    def test_deploy_script_safely_syncs_react_build_into_laravel_public(self):
+        script = self.read("deploy-mediahub.sh")
+
+        required_phrases = [
+            'FRONTEND_PUBLIC_DIR="${MEDIAHUB_FRONTEND_PUBLIC_DIR:-$SERVER_APP_DIR/backend/public}"',
+            "sync_frontend_build()",
+            'cp "$SERVER_APP_DIR/dist/index.html" "$FRONTEND_PUBLIC_DIR/index.html"',
+            'mkdir -p "$FRONTEND_PUBLIC_DIR/assets"',
+            'cp -a "$SERVER_APP_DIR/dist/assets/." "$FRONTEND_PUBLIC_DIR/assets/"',
+            '[[ -f "$FRONTEND_PUBLIC_DIR/index.php" ]]',
+            '[[ -f "$FRONTEND_PUBLIC_DIR/.htaccess" ]]',
+            '[[ -f "$FRONTEND_PUBLIC_DIR/index.html" ]]',
+            'find "$FRONTEND_PUBLIC_DIR/assets" -maxdepth 1 -type f',
+            "php artisan route:list --path=api/v1/status",
+        ]
+
+        for phrase in required_phrases:
+            self.assertIn(phrase, script)
+
+        self.assertNotIn('find "$FRONTEND_PUBLIC_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +', script)
+
     def test_rollback_script_restores_latest_backup_and_verifies(self):
         script = self.read("rollback-mediahub.sh")
         required_phrases = [
