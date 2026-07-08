@@ -10,6 +10,7 @@ use App\Models\Show;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -21,10 +22,13 @@ class MediaMetadataService
     ) {}
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array<string, mixed>  $options
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
-    public function enrichMovie(Movie $movie): array
+    public function enrichMovie(Movie $movie, array $options = []): array
     {
+        $options = $this->normalizeOptions($options);
+
         if (! $this->tmdb->enabled()) {
             return $this->summary(skipped: 1);
         }
@@ -50,9 +54,15 @@ class MediaMetadataService
                 return $this->add($summary, $this->summary(skipped: 1));
             }
 
+            $confidence = $this->confidence($movie->title, (string) ($result['title'] ?? ''));
+
+            if ($confidence < $options['min_confidence']) {
+                return $this->add($summary, $this->summary(skipped: 1));
+            }
+
             $match = [
                 'source' => 'tmdb',
-                'confidence' => $this->confidence($movie->title, (string) ($result['title'] ?? '')),
+                'confidence' => $confidence,
                 'method' => 'title_search',
             ];
             $details = $this->tmdb->getMovie((int) $result['id']);
@@ -74,10 +84,13 @@ class MediaMetadataService
     }
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array<string, mixed>  $options
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
-    public function enrichShow(Show $show, bool $enrichEpisodes = false): array
+    public function enrichShow(Show $show, bool $enrichEpisodes = false, array $options = []): array
     {
+        $options = $this->normalizeOptions($options);
+
         if (! $this->tmdb->enabled()) {
             return $this->summary(skipped: 1);
         }
@@ -103,9 +116,15 @@ class MediaMetadataService
                 return $this->add($summary, $this->summary(skipped: 1));
             }
 
+            $confidence = $this->confidence($show->title, (string) ($result['name'] ?? ''));
+
+            if ($confidence < $options['min_confidence']) {
+                return $this->add($summary, $this->summary(skipped: 1));
+            }
+
             $match = [
                 'source' => 'tmdb',
-                'confidence' => $this->confidence($show->title, (string) ($result['name'] ?? '')),
+                'confidence' => $confidence,
                 'method' => 'title_search',
             ];
             $details = $this->tmdb->getShow((int) $result['id']);
@@ -125,34 +144,108 @@ class MediaMetadataService
         $summary = $this->add($summary, $this->summary(matched: 1, enriched: 1));
 
         if ($enrichEpisodes) {
-            $summary = $this->add($summary, $this->enrichEpisodesForShow($show->refresh()));
+            $summary = $this->add($summary, $this->enrichEpisodesForShow($show->refresh(), $options));
         }
 
         return $summary;
     }
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array<string, mixed>  $options
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
-    public function enrichUser(User $user): array
+    public function enrichUser(User $user, array $options = []): array
     {
+        $options = $this->normalizeOptions($options);
         $summary = $this->emptySummary();
+        $remaining = $options['limit'];
 
-        Movie::forUser($user)
-            ->orderBy('id')
-            ->get()
-            ->each(function (Movie $movie) use (&$summary): void {
-                $summary = $this->add($summary, $this->enrichMovie($movie));
-            });
+        if (in_array($options['type'], ['movies', 'all'], true) && $this->hasRemaining($remaining)) {
+            $movies = $this->limitedQuery($this->missingFilter(Movie::forUser($user), $options), $remaining)
+                ->orderBy('id')
+                ->get();
+            $summary['planned'] += $movies->count();
+            $this->consumeRemaining($remaining, $movies->count());
 
-        Show::forUser($user)
-            ->orderBy('id')
-            ->get()
-            ->each(function (Show $show) use (&$summary): void {
-                $summary = $this->add($summary, $this->enrichShow($show, enrichEpisodes: true));
-            });
+            if (! $options['dry_run']) {
+                $movies->each(function (Movie $movie) use (&$summary, $options): void {
+                    $summary = $this->add($summary, $this->enrichMovie($movie, $options));
+                    $this->sleepBetweenRecords($options);
+                });
+            }
+        }
+
+        if (in_array($options['type'], ['shows', 'all'], true) && $this->hasRemaining($remaining)) {
+            $shows = $this->limitedQuery($this->missingFilter(Show::forUser($user), $options), $remaining)
+                ->orderBy('id')
+                ->get();
+            $summary['planned'] += $shows->count();
+            $this->consumeRemaining($remaining, $shows->count());
+
+            if (! $options['dry_run']) {
+                $shows->each(function (Show $show) use (&$summary, $options): void {
+                    $summary = $this->add($summary, $this->enrichShow($show, enrichEpisodes: false, options: $options));
+                    $this->sleepBetweenRecords($options);
+                });
+            }
+        }
+
+        if (in_array($options['type'], ['episodes', 'all'], true) && $this->hasRemaining($remaining)) {
+            $episodes = $this->limitedQuery($this->missingFilter(Episode::forUser($user)->with('show'), $options), $remaining)
+                ->whereNotNull('season_number')
+                ->whereNotNull('episode_number')
+                ->orderBy('show_id')
+                ->orderBy('season_number')
+                ->orderBy('episode_number')
+                ->get();
+            $summary['planned'] += $episodes->count();
+
+            if (! $options['dry_run']) {
+                $episodes->each(function (Episode $episode) use (&$summary, $options): void {
+                    $summary = $this->add($summary, $this->enrichEpisode($episode));
+                    $this->sleepBetweenRecords($options);
+                });
+            }
+        }
 
         return $summary;
+    }
+
+    /**
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     */
+    public function enrichEpisode(Episode $episode): array
+    {
+        if (! $this->tmdb->enabled()) {
+            return $this->summary(skipped: 1);
+        }
+
+        $episode->loadMissing('show');
+        $show = $episode->show;
+
+        if (! $show?->tmdb_id || ! $episode->season_number || ! $episode->episode_number) {
+            return $this->summary(skipped: 1);
+        }
+
+        $details = $this->tmdb->getEpisode((int) $show->tmdb_id, (int) $episode->season_number, (int) $episode->episode_number);
+
+        if (! $details) {
+            return $this->summary(failed: 1);
+        }
+
+        $this->applyEpisodeDetails($episode, $details, [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'show_season_episode',
+        ]);
+        $this->mediaEvents->record($episode->user, MediaEventType::MetadataEnriched, $episode, [
+            'title' => $episode->title,
+            'media_type' => 'episode',
+            'show_id' => $episode->show_id,
+            'tmdb_id' => $episode->tmdb_id,
+        ], MediaEventSource::Metadata);
+
+        return $this->summary(matched: 1, enriched: 1);
     }
 
     /**
@@ -184,9 +277,10 @@ class MediaMetadataService
     }
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array<string, mixed>  $options
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
-    private function enrichEpisodesForShow(Show $show): array
+    private function enrichEpisodesForShow(Show $show, array $options = []): array
     {
         if (! $show->tmdb_id) {
             return $this->summary(skipped: 1);
@@ -201,27 +295,9 @@ class MediaMetadataService
             ->orderBy('season_number')
             ->orderBy('episode_number')
             ->get()
-            ->each(function (Episode $episode) use (&$summary, $show): void {
-                $details = $this->tmdb->getEpisode((int) $show->tmdb_id, (int) $episode->season_number, (int) $episode->episode_number);
-
-                if (! $details) {
-                    $summary = $this->add($summary, $this->summary(failed: 1));
-
-                    return;
-                }
-
-                $this->applyEpisodeDetails($episode, $details, [
-                    'source' => 'tmdb',
-                    'confidence' => 1.0,
-                    'method' => 'show_season_episode',
-                ]);
-                $this->mediaEvents->record($episode->user, MediaEventType::MetadataEnriched, $episode, [
-                    'title' => $episode->title,
-                    'media_type' => 'episode',
-                    'show_id' => $episode->show_id,
-                    'tmdb_id' => $episode->tmdb_id,
-                ], MediaEventSource::Metadata);
-                $summary = $this->add($summary, $this->summary(matched: 1, enriched: 1));
+            ->each(function (Episode $episode) use (&$summary, $options): void {
+                $summary = $this->add($summary, $this->enrichEpisode($episode));
+                $this->sleepBetweenRecords($options);
             });
 
         return $summary;
@@ -434,7 +510,89 @@ class MediaMetadataService
     }
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array<string, mixed>  $options
+     * @return array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}
+     */
+    private function normalizeOptions(array $options): array
+    {
+        $type = in_array(($options['type'] ?? 'all'), ['movies', 'shows', 'episodes', 'all'], true)
+            ? (string) ($options['type'] ?? 'all')
+            : 'all';
+        $limit = is_numeric($options['limit'] ?? null) && (int) $options['limit'] > 0
+            ? (int) $options['limit']
+            : null;
+        $sleepMs = is_numeric($options['sleep_ms'] ?? null)
+            ? max(0, (int) $options['sleep_ms'])
+            : 0;
+        $minConfidence = is_numeric($options['min_confidence'] ?? null)
+            ? max(0.0, min(1.0, (float) $options['min_confidence']))
+            : 0.0;
+
+        return [
+            'type' => $type,
+            'limit' => $limit,
+            'only_missing' => (bool) ($options['only_missing'] ?? false),
+            'dry_run' => (bool) ($options['dry_run'] ?? false),
+            'sleep_ms' => $sleepMs,
+            'min_confidence' => $minConfidence,
+        ];
+    }
+
+    /**
+     * @param  Builder<Movie|Show|Episode>  $query
+     * @param  array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
+     * @return Builder<Movie|Show|Episode>
+     */
+    private function missingFilter(Builder $query, array $options): Builder
+    {
+        if (! $options['only_missing']) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $query): void {
+            $query
+                ->whereNull('tmdb_id')
+                ->orWhereNull('metadata_refreshed_at');
+        });
+    }
+
+    /**
+     * @param  Builder<Movie|Show|Episode>  $query
+     * @return Builder<Movie|Show|Episode>
+     */
+    private function limitedQuery(Builder $query, ?int $remaining): Builder
+    {
+        if ($remaining !== null) {
+            $query->limit($remaining);
+        }
+
+        return $query;
+    }
+
+    private function hasRemaining(?int $remaining): bool
+    {
+        return $remaining === null || $remaining > 0;
+    }
+
+    private function consumeRemaining(?int &$remaining, int $count): void
+    {
+        if ($remaining !== null) {
+            $remaining = max(0, $remaining - $count);
+        }
+    }
+
+    /**
+     * @param  array{type:string,limit:int|null,only_missing:bool,dry_run:bool,sleep_ms:int,min_confidence:float}  $options
+     */
+    private function sleepBetweenRecords(array $options): void
+    {
+        if ($options['sleep_ms'] > 0) {
+            usleep($options['sleep_ms'] * 1000);
+        }
+    }
+
+    /**
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
     private function emptySummary(): array
     {
@@ -442,17 +600,17 @@ class MediaMetadataService
     }
 
     /**
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
-    private function summary(int $searched = 0, int $matched = 0, int $enriched = 0, int $skipped = 0, int $failed = 0): array
+    private function summary(int $planned = 0, int $searched = 0, int $matched = 0, int $enriched = 0, int $skipped = 0, int $failed = 0): array
     {
-        return compact('searched', 'matched', 'enriched', 'skipped', 'failed');
+        return compact('planned', 'searched', 'matched', 'enriched', 'skipped', 'failed');
     }
 
     /**
-     * @param  array{searched:int,matched:int,enriched:int,skipped:int,failed:int}  $left
-     * @param  array{searched:int,matched:int,enriched:int,skipped:int,failed:int}  $right
-     * @return array{searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     * @param  array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}  $left
+     * @param  array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}  $right
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
     private function add(array $left, array $right): array
     {

@@ -267,6 +267,118 @@ class TmdbMetadataTest extends TestCase
         $this->assertStringNotContainsString('mediahub-private-stream-ref', $encoded);
     }
 
+    public function test_user_enrichment_dry_run_respects_limit_and_does_not_write(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $firstMovie = Movie::create(['user_id' => $user->id, 'title' => 'Heat']);
+        $secondMovie = Movie::create(['user_id' => $user->id, 'title' => 'Arrival']);
+        Http::preventStrayRequests();
+
+        $this->artisan('mediahub:enrich-user', [
+            'user_id' => $user->id,
+            '--type' => 'movies',
+            '--only-missing' => true,
+            '--limit' => 1,
+            '--dry-run' => true,
+        ])
+            ->expectsOutput('planned: 1')
+            ->expectsOutput('enriched: 0')
+            ->assertExitCode(0);
+
+        $this->assertNull($firstMovie->refresh()->tmdb_id);
+        $this->assertNull($secondMovie->refresh()->tmdb_id);
+        Http::assertNothingSent();
+    }
+
+    public function test_user_enrichment_limit_and_only_missing_are_respected(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $alreadyEnriched = Movie::create([
+            'user_id' => $user->id,
+            'title' => 'Already Enriched',
+            'tmdb_id' => 1,
+            'metadata_refreshed_at' => now(),
+        ]);
+        $firstMissing = Movie::create(['user_id' => $user->id, 'title' => 'Heat']);
+        $secondMissing = Movie::create(['user_id' => $user->id, 'title' => 'Arrival']);
+
+        Http::fake([
+            'api.themoviedb.org/3/search/movie*' => Http::response([
+                'results' => [[
+                    'id' => 949,
+                    'title' => 'Heat',
+                    'release_date' => '1995-12-15',
+                ]],
+            ]),
+            'api.themoviedb.org/3/movie/949*' => Http::response([
+                'id' => 949,
+                'title' => 'Heat',
+                'poster_path' => '/heat-poster.jpg',
+                'backdrop_path' => '/heat-backdrop.jpg',
+                'release_date' => '1995-12-15',
+                'genres' => [['id' => 80, 'name' => 'Crime']],
+                'runtime' => 170,
+                'status' => 'Released',
+            ]),
+        ]);
+
+        $this->artisan('mediahub:enrich-user', [
+            'user_id' => $user->id,
+            '--type' => 'movies',
+            '--only-missing' => true,
+            '--limit' => 1,
+        ])
+            ->expectsOutput('planned: 1')
+            ->expectsOutput('enriched: 1')
+            ->assertExitCode(0);
+
+        $this->assertSame(1, $alreadyEnriched->refresh()->tmdb_id);
+        $this->assertSame(949, $firstMissing->refresh()->tmdb_id);
+        $this->assertNull($secondMissing->refresh()->tmdb_id);
+    }
+
+    public function test_user_enrichment_min_confidence_skips_weak_matches_safely(): void
+    {
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        $user = $this->member();
+        $movie = Movie::create(['user_id' => $user->id, 'title' => 'Heat']);
+
+        Http::fake([
+            'api.themoviedb.org/3/search/movie*' => Http::response([
+                'results' => [[
+                    'id' => 123,
+                    'title' => 'A Completely Different Film',
+                    'release_date' => '2020-01-01',
+                ]],
+            ]),
+            'api.themoviedb.org/3/movie/123*' => Http::response([
+                'id' => 123,
+                'title' => 'A Completely Different Film',
+                'poster_path' => '/wrong-poster.jpg',
+            ]),
+        ]);
+
+        $this->artisan('mediahub:enrich-user', [
+            'user_id' => $user->id,
+            '--type' => 'movies',
+            '--only-missing' => true,
+            '--limit' => 1,
+            '--min-confidence' => 0.8,
+        ])
+            ->expectsOutput('planned: 1')
+            ->expectsOutput('enriched: 0')
+            ->expectsOutput('skipped: 1')
+            ->assertExitCode(0);
+
+        $this->assertNull($movie->refresh()->tmdb_id);
+        Http::assertSentCount(1);
+    }
+
     private function member(string $email = 'member@example.test'): User
     {
         return User::factory()->create([
