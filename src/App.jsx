@@ -24,7 +24,7 @@ import {
 } from "./lib/dashboard.js";
 import { apiRequest, SessionExpiredError } from "./lib/api.js";
 
-const fallbackPoster = "/assets/generated/movie-poster-1.png";
+const generatedPosterPattern = /\/assets\/generated\/movie-poster-\d+\.png(?:[?#].*)?$/;
 
 const navItems = [
   { id: "home", label: "Home", icon: House },
@@ -45,7 +45,7 @@ const alertTabs = [
 ];
 
 const fallbackData = {
-  profile: { name: "gunner", image: "", cover: fallbackPoster },
+  profile: { name: "gunner", image: "", cover: "" },
   stats: {
     episodesWatched: 0,
     moviesWatched: 0,
@@ -57,8 +57,8 @@ const fallbackData = {
     title: "TV Time import ready",
     subtitle: "Private local dashboard",
     meta: "Run the importer to load your history",
-    poster: fallbackPoster,
-    backdrop: fallbackPoster,
+    poster: "",
+    backdrop: "",
     progress: 0,
     kind: "library",
     eyebrow: "Local archive",
@@ -137,8 +137,55 @@ function sourceLabel(source) {
   return labels[source] || source.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function usableArtwork(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    return "";
+  }
+
+  const nextValue = value.trim();
+
+  return generatedPosterPattern.test(nextValue) ? "" : nextValue;
+}
+
 function imageFor(item) {
-  return item?.poster || item?.backdrop || fallbackPoster;
+  return usableArtwork(item?.poster) || usableArtwork(item?.backdrop);
+}
+
+function backdropFor(item) {
+  return usableArtwork(item?.backdrop) || usableArtwork(item?.poster);
+}
+
+function posterInitials(title) {
+  const words = String(title || "")
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length >= 2) {
+    return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return "";
+}
+
+function PosterArtwork({ item, className = "" }) {
+  const image = imageFor(item);
+  const title = item?.title || "this title";
+
+  if (image) {
+    return <img className={className} src={image} alt="" />;
+  }
+
+  return (
+    <span className={`neutral-poster ${className}`.trim()} role="img" aria-label={`No poster for ${title}`}>
+      <span>{posterInitials(title) || "No poster"}</span>
+    </span>
+  );
 }
 
 function mediaDetailPath(item) {
@@ -318,13 +365,17 @@ function Topbar({ profile, query, onQueryChange, onLogout }) {
 }
 
 function Hero({ item, onOpen }) {
-  const background = item.backdrop || item.poster || fallbackPoster;
+  const background = backdropFor(item);
   return (
     <section className="hero-panel">
-      <img className="hero-backdrop" src={background} alt="" />
+      {background ? (
+        <img className="hero-backdrop" src={background} alt="" />
+      ) : (
+        <div className="hero-backdrop hero-backdrop-neutral" />
+      )}
       <div className="hero-shade" />
       <div className="hero-poster-wrap">
-        <img src={imageFor(item)} alt="" className="hero-poster" />
+        <PosterArtwork item={item} className="hero-poster" />
       </div>
       <div className="hero-copy">
         <span className="eyebrow">{item.eyebrow || "Continue watching"}</span>
@@ -410,7 +461,7 @@ function PosterCard({ item, onOpen, compact = false }) {
       type="button"
     >
       <span className="poster-frame">
-        <img src={imageFor(item)} alt="" />
+        <PosterArtwork item={item} />
         {item.badge ? <b className={`badge ${item.badge}`}>{item.badge}</b> : null}
       </span>
       <span className="poster-copy">
@@ -514,7 +565,7 @@ function LibraryCard({ item, onOpen }) {
       type="button"
     >
       <span className="library-card-art">
-        <img src={imageFor(item)} alt="" />
+        <PosterArtwork item={item} />
       </span>
       <span className="library-card-copy">
         <strong>{item.title}</strong>
@@ -917,7 +968,7 @@ export function HistorySection({
                 onClick={() => onOpen(item)}
                 type="button"
               >
-                <img src={imageFor(item)} alt="" />
+                <PosterArtwork item={item} />
                 <span>
                   <strong>{item.title}</strong>
                   <small>{item.subtitle}{item.showTitle ? ` · ${item.showTitle}` : ""}</small>
@@ -1028,7 +1079,7 @@ export function GlobalSearchPanel({
                   onClick={() => onOpen(item)}
                   type="button"
                 >
-                  <img src={imageFor(item)} alt="" />
+                  <PosterArtwork item={item} />
                   <span>
                     <strong>{item.title}</strong>
                     <small>{item.meta || item.subtitle}</small>
@@ -1229,7 +1280,7 @@ export function DetailModal({
           <X size={20} />
         </button>
         {!isAlert ? (
-          <img className="modal-art" src={imageFor(view)} alt="" />
+          <PosterArtwork item={view} className="modal-art" />
         ) : (
           <div className="modal-alert-art">
             <Bell size={48} weight="duotone" />

@@ -461,6 +461,55 @@ const showLibraryPayload = {
 };
 
 describe("Library browser", () => {
+  it("uses TMDB poster artwork when a movie is enriched", async () => {
+    const apiClient = vi.fn().mockResolvedValue({
+      items: [
+        {
+          ...movieLibraryPayload.items[0],
+          poster: "https://image.tmdb.org/t/p/w500/heat-poster.jpg",
+        },
+      ],
+      pagination: { page: 1, perPage: 24, total: 1, hasMore: false },
+    });
+    const { container } = render(<MovieLibrary apiClient={apiClient} onOpen={vi.fn()} />);
+
+    expect(await screen.findByText("Heat")).toBeInTheDocument();
+    expect(container.querySelector(".library-card-art img")).toHaveAttribute(
+      "src",
+      "https://image.tmdb.org/t/p/w500/heat-poster.jpg",
+    );
+  });
+
+  it("uses a neutral poster fallback instead of repeating generated artwork", async () => {
+    const apiClient = vi.fn().mockResolvedValue({
+      items: [
+        {
+          ...movieLibraryPayload.items[0],
+          id: 42,
+          title: "Heat",
+          poster: "",
+          backdrop: "",
+        },
+        {
+          ...movieLibraryPayload.items[0],
+          id: 43,
+          movieId: 43,
+          title: "Arrival",
+          poster: "/assets/generated/movie-poster-1.png",
+          backdrop: "",
+        },
+      ],
+      pagination: { page: 1, perPage: 24, total: 2, hasMore: false },
+    });
+    const { container } = render(<MovieLibrary apiClient={apiClient} onOpen={vi.fn()} />);
+
+    expect(await screen.findByText("Heat")).toBeInTheDocument();
+    expect(await screen.findByText("Arrival")).toBeInTheDocument();
+    expect(container.querySelectorAll('img[src="/assets/generated/movie-poster-1.png"]')).toHaveLength(0);
+    expect(screen.getByLabelText("No poster for Heat")).toHaveTextContent("HE");
+    expect(screen.getByLabelText("No poster for Arrival")).toHaveTextContent("AR");
+  });
+
   it("renders a searchable movie browser with ratings, notes, watched state, and safe metadata", async () => {
     const apiClient = vi.fn().mockResolvedValue(movieLibraryPayload);
     const onOpen = vi.fn();
