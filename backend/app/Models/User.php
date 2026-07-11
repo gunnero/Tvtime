@@ -10,6 +10,7 @@ use Filament\Panel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -116,6 +117,21 @@ class User extends Authenticatable implements FilamentUser
     public function notes(): HasMany
     {
         return $this->hasMany(Note::class);
+    }
+
+    public function mediaLists(): HasMany
+    {
+        return $this->hasMany(MediaList::class);
+    }
+
+    public function mediaListItems(): HasMany
+    {
+        return $this->hasMany(MediaListItem::class);
+    }
+
+    public function notificationPreference(): HasOne
+    {
+        return $this->hasOne(NotificationPreference::class);
     }
 
     public function scopeActive(Builder $query): Builder

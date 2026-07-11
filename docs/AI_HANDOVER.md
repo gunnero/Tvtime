@@ -5,6 +5,34 @@ Repository: `/Users/aleksandardimovski/Sites/tvtime/dashboard`
 Remote: `https://github.com/gunnero/Tvtime.git`
 Staging: `https://ccc.razbudise.mk` with a public login page, Laravel-authenticated private routes, and Apache `noindex`
 
+## 2026-07-11 Web V1 Addendum
+
+This section supersedes older implementation-status statements below.
+
+- MediaHub Web V1 is implemented locally and is not deployed by this program.
+- Default navigation is Home, Discover, Movies, Shows, History, Calendar, Alerts, Stats, Lists, and Settings.
+- `MEDIAHUB_WEB_PLAYER_ENABLED=false` and `MEDIAHUB_WEB_PROVIDERS_ENABLED=false` hide Player, Play actions, provider status, and Provider Settings from the normal web product.
+- Provider/player APIs, migrations, encrypted records, admin support, and tests remain intact for compatibility and the future native app.
+- New user-scoped services and APIs cover release calendar, useful alerts/preferences, trustworthy stats, private manual lists, settings status, and JSON/CSV exports.
+- New `media_lists`, `media_list_items`, and `notification_preferences` tables are user-scoped. Alert deduplication uses a per-user `dedupe_key`.
+- `mediahub:repair-import-relationships {user_id} --dry-run|--apply` repairs only deterministic same-user episode/watch/show relationships. Apply mode backs up first; ambiguous or aggregate-only gaps remain unresolved.
+- Backup and restore now include private manual lists but still exclude provider credentials, settings, locators, secrets, and tokens.
+- Visible branding is MediaHub, with TV Time named only as an import source.
+- No subscription, payment, premium-gating, new AI, native app, or native playback code was added.
+
+Current source-of-truth documents:
+
+- `docs/mediahub/WEB_PRODUCT_SCOPE.md`
+- `docs/mediahub/IMPORT_RELATIONSHIP_REPAIR.md`
+- `docs/mediahub/NATIVE_APP_FUTURE_ARCHITECTURE.md`
+- `docs/mediahub/FREE_V1_AND_MEMBERSHIP_PLAN.md`
+- `docs/mediahub/MEDIAHUB_V1_CHECKLIST.md`
+
+The two pre-existing provider fixes were classified and committed separately before Web V1 work:
+
+- `94ca2e0` - preserve XMLTV query credentials
+- `276ddb2` - expose provider catalog sync lifecycle
+
 ## 1. Project Overview
 
 Project name: MediaHub.

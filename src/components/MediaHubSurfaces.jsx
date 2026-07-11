@@ -207,7 +207,7 @@ export function PlayerSection({ apiClient = apiRequest, onOpenSettings, onRefres
 
 const emptyProviderForm = { name: "", providerType: "manual", baseUrl: "", username: "", password: "", playlistUrl: "", xmltvUrl: "", epgTimeShift: "0", refreshFrequency: "manual", enabled: true, legalConfirmed: false };
 
-export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessionExpired }) {
+export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessionExpired, providersEnabled = false }) {
   const [section, setSection] = useState("profile");
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -223,7 +223,10 @@ export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessio
     catch (loadError) { if (loadError instanceof SessionExpiredError) onSessionExpired?.(); else setError(loadError.message || "Could not load providers."); }
     finally { setLoading(false); }
   }
-  useEffect(() => { loadProviders(); }, []);
+  useEffect(() => {
+    if (providersEnabled) loadProviders();
+    else setLoading(false);
+  }, [providersEnabled]);
 
   function body(includeLegal = false) {
     return { name: form.name.trim(), provider_type: form.providerType, base_url: form.baseUrl.trim() || null, username: form.username.trim() || null, password: form.password || null, playlist_url: form.playlistUrl.trim() || null, xmltv_url: form.xmltvUrl.trim() || null, epg_time_shift: Number(form.epgTimeShift || 0), refresh_frequency: form.refreshFrequency, enabled: form.enabled, ...(includeLegal ? { legal_confirmed: form.legalConfirmed } : {}) };
@@ -264,7 +267,7 @@ export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessio
     } catch (itemError) { setError(itemError.message || "Could not add private source item."); setStatus(""); }
   }
 
-  const sections = [["profile", "Profile"], ["privacy", "Privacy"], ["library", "Library"], ["providers", "Providers"], ["backups", "Backups"], ["metadata", "Metadata"], ["about", "About"]];
+  const sections = [["profile", "Profile"], ["privacy", "Privacy"], ["library", "Library"], ...(providersEnabled ? [["providers", "Providers"]] : []), ["backups", "Backups"], ["metadata", "Metadata"], ["about", "About"]];
   return (
     <section className="settings-screen"><header><span className="eyebrow">Your MediaHub</span><h2>Settings</h2><p>Control your private library, providers, metadata, and backups.</p></header><nav className="settings-nav" aria-label="Settings sections">{sections.map(([id, label]) => <button className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)} type="button">{label}</button>)}</nav>{error ? <div className="detail-error">{error}</div> : null}{status ? <div className="settings-status">{status}</div> : null}
       {section === "profile" ? <div className="settings-editorial"><h3>Profile</h3><p>Your account identity is used only inside this private MediaHub installation.</p><dl><div><dt>Account</dt><dd>Authenticated member</dd></div><div><dt>Visibility</dt><dd>Private</dd></div></dl></div> : null}

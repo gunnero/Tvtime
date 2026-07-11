@@ -15,6 +15,7 @@ use Illuminate\Support\Collection;
 class DashboardPayloadService
 {
     public function __construct(
+        private readonly AlertService $alertService,
         private readonly AnalyticsService $analytics,
         private readonly MediaEventService $mediaEvents,
         private readonly MediaLibraryService $mediaLibrary,
@@ -27,6 +28,7 @@ class DashboardPayloadService
      */
     public function forUser(User $user): array
     {
+        $this->alertService->syncForUser($user);
         $stats = $this->mediaLibrary->statsFor($user);
         $alertsUnread = Alert::forUser($user)->unread()->count();
         $recentlyWatched = $this->recentlyWatched($user);
@@ -34,6 +36,10 @@ class DashboardPayloadService
         $this->analytics->record('dashboard.viewed', $user);
 
         return [
+            'features' => [
+                'webPlayerEnabled' => (bool) config('mediahub.web_player_enabled', false),
+                'webProvidersEnabled' => (bool) config('mediahub.web_providers_enabled', false),
+            ],
             'profile' => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -85,6 +91,7 @@ class DashboardPayloadService
                 'title' => $alert->title,
                 'subtitle' => $alert->subtitle,
                 'dueText' => $alert->due_text,
+                'payload' => $alert->payload,
                 'unread' => $alert->unread,
             ])
             ->values()

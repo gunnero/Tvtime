@@ -131,6 +131,8 @@ class BackendFoundationTest extends TestCase
             ->assertJsonPath('stats.hoursWatched', 0)
             ->assertJsonPath('stats.showsFollowed', 0)
             ->assertJsonPath('stats.alertsUnread', 0)
+            ->assertJsonPath('features.webPlayerEnabled', false)
+            ->assertJsonPath('features.webProvidersEnabled', false)
             ->assertJsonCount(0, 'alerts')
             ->assertJsonCount(0, 'recentlyWatched')
             ->assertJsonCount(0, 'followedNewEpisodes')
@@ -142,6 +144,25 @@ class BackendFoundationTest extends TestCase
             'actor_user_id' => $user->id,
             'event_name' => 'dashboard.viewed',
         ]);
+    }
+
+    public function test_dashboard_exposes_web_surface_flags_without_disabling_player_apis(): void
+    {
+        config()->set('mediahub.web_player_enabled', true);
+        config()->set('mediahub.web_providers_enabled', true);
+        $user = User::factory()->create([
+            'role' => UserRole::Member,
+            'status' => UserStatus::Active,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson('/api/v1/dashboard')
+            ->assertOk()
+            ->assertJsonPath('features.webPlayerEnabled', true)
+            ->assertJsonPath('features.webProvidersEnabled', true);
+
+        $this->actingAs($user)->getJson('/api/v1/player/sources')->assertOk();
+        $this->actingAs($user)->getJson('/api/v1/providers')->assertOk();
     }
 
     public function test_alert_read_actions_persist_and_record_analytics(): void

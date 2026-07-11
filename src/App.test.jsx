@@ -10,6 +10,7 @@ import {
   PlayerSection,
   SettingsSection,
   ShowLibrary,
+  Sidebar,
   TimelinePanel,
 } from "./App.jsx";
 
@@ -77,7 +78,7 @@ afterEach(() => {
 
 describe("DetailModal", () => {
   it("renders media detail, rating, notes, history, and provider status", () => {
-    renderDetail();
+    renderDetail({ playerEnabled: true });
 
     expect(screen.getByRole("dialog", { name: /heat details/i })).toBeInTheDocument();
     expect(screen.getByText("9/10")).toBeInTheDocument();
@@ -94,6 +95,14 @@ describe("DetailModal", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /provider \/ playback/i }));
     expect(screen.getByText("Ready from your source")).toBeInTheDocument();
+  });
+
+  it("hides provider and play surfaces when the web player is disabled", () => {
+    renderDetail();
+
+    expect(screen.queryByRole("tab", { name: /provider/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^play/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Linked source")).not.toBeInTheDocument();
   });
 
   it("renders enriched metadata without breaking poster fallback", () => {
@@ -133,6 +142,14 @@ describe("DetailModal", () => {
         subtitle: "TV show",
         meta: "2/9 watched",
         watched: true,
+        latestEpisode: {
+          id: 101,
+          episodeId: 101,
+          showId: 8,
+          title: "Good News About Hell",
+          code: "S01E01",
+          watchedAt: "2026-07-01T12:00:00Z",
+        },
         seasons: [
           {
             seasonNumber: 1,
@@ -146,7 +163,9 @@ describe("DetailModal", () => {
                 title: "Good News About Hell",
                 code: "S01E01",
                 watched: true,
-                latestWatchedAt: "2026-07-01T12:00:00Z",
+                watchedAt: "2026-07-01T12:00:00Z",
+                rating: 9,
+                hasNote: true,
               },
               {
                 id: 102,
@@ -178,7 +197,11 @@ describe("DetailModal", () => {
       onOpenEpisode,
     });
 
+    expect(screen.getByRole("button", { name: /jump to latest watched/i })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("tab", { name: /episodes/i }));
+    expect(screen.getByText(/rated 9\/10/i)).toBeInTheDocument();
+    expect(screen.getByText(/private note/i)).toBeInTheDocument();
     expect(screen.getByText("Season 1")).toBeInTheDocument();
     expect(screen.getByText("1/2 watched")).toBeInTheDocument();
     expect(screen.getByText("Good News About Hell")).toBeInTheDocument();
@@ -256,6 +279,19 @@ describe("DetailModal", () => {
     expect(screen.getByText("Loading details...")).toBeInTheDocument();
     expect(screen.getByText("Could not load details.")).toBeInTheDocument();
     expect(screen.getByText("Could not save change.")).toBeInTheDocument();
+  });
+});
+
+describe("Web navigation feature flags", () => {
+  it("hides Player by default and reveals it only when explicitly enabled", () => {
+    const { rerender } = render(<Sidebar activeSection="home" alertsCount={0} onSelect={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /player/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /home/i })).toHaveAttribute("aria-label", "Home");
+    expect(screen.getByRole("button", { name: /lists/i })).toBeInTheDocument();
+
+    rerender(<Sidebar activeSection="home" alertsCount={0} features={{ webPlayerEnabled: true }} onSelect={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /player/i })).toBeInTheDocument();
   });
 });
 
@@ -446,7 +482,7 @@ describe("SettingsSection", () => {
       }
       throw new Error(`Unexpected API call: ${path}`);
     });
-    render(<SettingsSection apiClient={apiClient} />);
+    render(<SettingsSection apiClient={apiClient} providersEnabled />);
 
     fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
     fireEvent.change(screen.getByLabelText(/provider display name/i), { target: { value: "My NAS" } });
@@ -464,7 +500,7 @@ describe("SettingsSection", () => {
       if (path === "/api/v1/player/sources/3/items" && options.method === "POST") return { item: { id: 44, title: options.body.title } };
       throw new Error(`Unexpected API call: ${path}`);
     });
-    render(<SettingsSection apiClient={apiClient} />);
+    render(<SettingsSection apiClient={apiClient} providersEnabled />);
     fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
     expect((await screen.findAllByText("My Provider")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText(/manual provider/i), { target: { value: "3" } });
@@ -485,7 +521,7 @@ describe("SettingsSection", () => {
       }
       throw new Error(`Unexpected API call: ${path}`);
     });
-    render(<SettingsSection apiClient={apiClient} />);
+    render(<SettingsSection apiClient={apiClient} providersEnabled />);
 
     fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
     fireEvent.change(screen.getByLabelText(/provider display name/i), { target: { value: "Private TV" } });
@@ -506,11 +542,19 @@ describe("SettingsSection", () => {
       if (path === "/api/v1/providers") return { providers: [failedProvider] };
       throw new Error(`Unexpected API call: ${path}`);
     });
-    render(<SettingsSection apiClient={apiClient} />);
+    render(<SettingsSection apiClient={apiClient} providersEnabled />);
 
     fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
     expect(await screen.findByText(/active items · catalog refresh failed/i)).toBeInTheDocument();
     expect(screen.getByText(/check the connection or provider availability/i)).toBeInTheDocument();
+  });
+
+  it("keeps provider settings hidden and avoids provider API calls by default", async () => {
+    const apiClient = vi.fn();
+    render(<SettingsSection apiClient={apiClient} />);
+
+    expect(screen.queryByRole("button", { name: /^providers$/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(apiClient).not.toHaveBeenCalled());
   });
 });
 
@@ -619,7 +663,7 @@ describe("Library browser", () => {
     expect(screen.getByText("Heat")).toBeInTheDocument();
     expect(screen.getByText("9/10")).toBeInTheDocument();
     expect(screen.getByText("Private note")).toBeInTheDocument();
-    expect(screen.getByText("Linked source")).toBeInTheDocument();
+    expect(screen.queryByText("Linked source")).not.toBeInTheDocument();
     expect(screen.getByText("enriched")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/search movies/i), { target: { value: "arrival" } });
@@ -642,7 +686,7 @@ describe("Library browser", () => {
     render(<ShowLibrary apiClient={apiClient} onOpen={onOpen} />);
 
     expect(await screen.findByRole("heading", { name: /shows/i })).toBeInTheDocument();
-    expect(screen.getByText("Severance")).toBeInTheDocument();
+    expect(await screen.findByText("Severance")).toBeInTheDocument();
     expect(screen.getByText("2/9 watched")).toBeInTheDocument();
     expect(screen.getByText("10/10")).toBeInTheDocument();
 
@@ -817,7 +861,7 @@ describe("TimelinePanel", () => {
 
     expect(screen.getByText("This week")).toBeInTheDocument();
     expect(screen.getByText("Added a private note")).toBeInTheDocument();
-    expect(screen.getByText("Player")).toBeInTheDocument();
+    expect(screen.getByText("Automatic tracking")).toBeInTheDocument();
     expect(screen.queryByText("note.created")).not.toBeInTheDocument();
   });
 

@@ -6,9 +6,11 @@ import {
   ChartBar,
   CheckCircle,
   Clock,
+  Compass,
   FilmSlate,
   GearSix,
   House,
+  ListBullets,
   MagnifyingGlass,
   Play,
   SignOut,
@@ -24,6 +26,14 @@ import {
 } from "./lib/dashboard.js";
 import { apiRequest, SessionExpiredError } from "./lib/api.js";
 import { PlayerSection, SettingsSection } from "./components/MediaHubSurfaces.jsx";
+import {
+  AlertsSection,
+  CalendarSection,
+  DiscoverSection,
+  ListsSection,
+  StatsSection,
+  WebSettingsSection,
+} from "./components/WebV1Surfaces.jsx";
 
 export { PlayerSection, SettingsSection } from "./components/MediaHubSurfaces.jsx";
 
@@ -31,13 +41,16 @@ const generatedPosterPattern = /\/assets\/generated\/movie-poster-\d+\.png(?:[?#
 
 const navItems = [
   { id: "home", label: "Home", icon: House },
-  { id: "shows", label: "Shows", icon: TelevisionSimple },
+  { id: "discover", label: "Discover", icon: Compass },
   { id: "movies", label: "Movies", icon: FilmSlate },
+  { id: "shows", label: "Shows", icon: TelevisionSimple },
   { id: "history", label: "History", icon: Clock },
-  { id: "player", label: "Player", icon: Play },
+  { id: "calendar", label: "Calendar", icon: CalendarDots },
   { id: "alerts", label: "Alerts", icon: Bell },
   { id: "stats", label: "Stats", icon: ChartBar },
+  { id: "lists", label: "Lists", icon: ListBullets },
   { id: "settings", label: "Settings", icon: GearSix },
+  { id: "player", label: "Player", icon: Play, feature: "webPlayerEnabled" },
 ];
 
 const alertTabs = [
@@ -48,6 +61,10 @@ const alertTabs = [
 ];
 
 const fallbackData = {
+  features: {
+    webPlayerEnabled: false,
+    webProvidersEnabled: false,
+  },
   profile: { name: "gunner", image: "", cover: "" },
   stats: {
     episodesWatched: 0,
@@ -57,14 +74,14 @@ const fallbackData = {
     alertsUnread: 0,
   },
   hero: {
-    title: "TV Time import ready",
-    subtitle: "Private local dashboard",
-    meta: "Run the importer to load your history",
+    title: "Your library is ready",
+    subtitle: "Your private entertainment memory",
+    meta: "Import or add titles to begin",
     poster: "",
     backdrop: "",
     progress: 0,
     kind: "library",
-    eyebrow: "Local archive",
+    eyebrow: "MediaHub",
   },
   alerts: [],
   recentlyWatched: [],
@@ -128,8 +145,8 @@ function sourceLabel(source) {
     import: "Import",
     manual: "Manual entry",
     metadata: "Metadata",
-    player: "Player",
-    provider: "Provider",
+    player: "Automatic tracking",
+    provider: "Connected source",
     system: "System",
   };
 
@@ -245,23 +262,24 @@ function Logo() {
         <FilmSlate size={24} weight="fill" />
       </div>
       <div>
-        <strong>Cinema</strong>
-        <span>Command Center</span>
+        <strong>MediaHub</strong>
+        <span>Entertainment Memory</span>
       </div>
     </div>
   );
 }
 
-function Sidebar({ activeSection, alertsCount, onSelect }) {
+export function Sidebar({ activeSection, alertsCount, features = {}, onSelect }) {
   return (
     <aside className="sidebar">
       <Logo />
       <nav className="main-nav" aria-label="Main navigation">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !item.feature || features[item.feature]).map((item) => {
           const Icon = item.icon;
           const active = activeSection === item.id;
           return (
             <button
+              aria-label={item.label}
               className={`nav-item ${active ? "active" : ""}`}
               key={item.id}
               onClick={() => onSelect(item.id)}
@@ -277,7 +295,7 @@ function Sidebar({ activeSection, alertsCount, onSelect }) {
         })}
       </nav>
       <div className="sidebar-footer">
-        <span>Private local archive</span>
+        <span>Private entertainment memory</span>
         <strong>v1.0.0</strong>
       </div>
     </aside>
@@ -551,12 +569,12 @@ function LibraryToolbar({
   );
 }
 
-function LibraryCard({ item, onOpen }) {
+function LibraryCard({ item, onOpen, showProviderStatus = false }) {
   const badges = [
     item.watched ? "Watched" : null,
     ratingLabel(item.rating),
     item.hasNote ? "Private note" : null,
-    item.providerLinked ? "Linked source" : null,
+    showProviderStatus && item.providerLinked ? "Linked source" : null,
     item.metadataStatus,
   ].filter(Boolean);
 
@@ -603,6 +621,7 @@ export function MovieLibrary({
   initialSearch = "",
   onOpen,
   onSessionExpired,
+  showProviderStatus = false,
 }) {
   const [searchDraft, setSearchDraft] = useState(initialSearch);
   const [filters, setFilters] = useState({
@@ -705,7 +724,7 @@ export function MovieLibrary({
         {payload.items.length ? (
           <div className="library-grid">
             {payload.items.map((item) => (
-              <LibraryCard item={item} key={item.id} onOpen={onOpen} />
+              <LibraryCard item={item} key={item.id} onOpen={onOpen} showProviderStatus={showProviderStatus} />
             ))}
           </div>
         ) : (
@@ -725,6 +744,7 @@ export function ShowLibrary({
   initialSearch = "",
   onOpen,
   onSessionExpired,
+  showProviderStatus = false,
 }) {
   const [searchDraft, setSearchDraft] = useState(initialSearch);
   const [filters, setFilters] = useState({
@@ -829,7 +849,7 @@ export function ShowLibrary({
         {payload.items.length ? (
           <div className="library-grid">
             {payload.items.map((item) => (
-              <LibraryCard item={item} key={item.id} onOpen={onOpen} />
+              <LibraryCard item={item} key={item.id} onOpen={onOpen} showProviderStatus={showProviderStatus} />
             ))}
           </div>
         ) : (
@@ -1319,6 +1339,7 @@ export function DetailModal({
   actionError = "",
   actionPending = false,
   playback = null,
+  playerEnabled = false,
   onClose,
   onSaveRating,
   onClearRating,
@@ -1377,14 +1398,14 @@ export function DetailModal({
         ["episodes", "Episodes"],
         ["activity", "Activity"],
         ["notes", "Notes & Rating"],
-        ["provider", "Provider"],
+        ...(playerEnabled ? [["provider", "Provider"]] : []),
       ]
     : [
         ["overview", "Overview"],
         ["activity", "Your Activity"],
         ["notes", "Notes & Rating"],
         ["history", "Watch History"],
-        ["provider", "Provider / Playback"],
+        ...(playerEnabled ? [["provider", "Provider / Playback"]] : []),
       ];
   const publicTags = [
     metadata.releaseYear,
@@ -1423,7 +1444,7 @@ export function DetailModal({
             <div className="cinematic-meta">{publicTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
             <p>{view.overview || "This title is part of your permanent MediaHub library."}</p>
             <div className="cinematic-actions">
-              {detail?.provider?.playableItemId ? (
+              {playerEnabled && detail?.provider?.playableItemId ? (
                 <button className="primary-action" onClick={() => onPlay?.(detail)} type="button"><Play size={18} weight="fill" /> Play</button>
               ) : null}
               {canManualWatch ? (
@@ -1463,12 +1484,17 @@ export function DetailModal({
                   <section className="detail-facts">
                     <div><span>Watched</span><strong>{detail.watched ? "Yes" : "Not yet"}</strong></div>
                     <div><span>Your rating</span><strong>{rating ? `${rating}/10` : "Not rated"}</strong></div>
-                    <div><span>Provider</span><strong>{detail.provider?.linked ? "Linked" : "Manual only"}</strong></div>
+                    {playerEnabled ? <div><span>Provider</span><strong>{detail.provider?.linked ? "Linked" : "Manual only"}</strong></div> : null}
                     {detail.kind === "show" ? <div><span>Progress</span><strong>{detail.meta}</strong></div> : null}
                   </section>
                   {detail.kind === "show" && detail.nextUnwatchedEpisode ? (
                     <button className="next-episode-card" onClick={() => onOpenEpisode?.({ ...detail.nextUnwatchedEpisode, kind: "episode", subtitle: detail.nextUnwatchedEpisode.code, meta: `${detail.title} · ${detail.nextUnwatchedEpisode.code}` })} type="button">
                       <Play size={20} weight="fill" /><span><small>Continue next</small><strong>{detail.nextUnwatchedEpisode.title}</strong><em>{detail.nextUnwatchedEpisode.code}</em></span>
+                    </button>
+                  ) : null}
+                  {detail.kind === "show" && detail.latestEpisode ? (
+                    <button className="next-episode-card latest-episode-card" onClick={() => onOpenEpisode?.({ ...detail.latestEpisode, kind: "episode", subtitle: detail.latestEpisode.code, meta: `${detail.title} · ${detail.latestEpisode.code}` })} type="button">
+                      <Clock size={20} /><span><small>Jump to latest watched</small><strong>{detail.latestEpisode.title}</strong><em>{detail.latestEpisode.code}{detail.latestEpisode.watchedAt ? ` · ${shortDate(detail.latestEpisode.watchedAt)}` : ""}</em></span>
                     </button>
                   ) : null}
                 </div>
@@ -1478,7 +1504,7 @@ export function DetailModal({
                 <section className="episode-browser-panel">
                   <div className="season-controls">
                     <label><span>Season</span><select aria-label="Season" onChange={(event) => setSelectedSeason(Number(event.target.value))} value={selectedSeason ?? ""}>
-                      {(detail.seasons || []).map((season) => <option key={season.seasonNumber} value={season.seasonNumber}>Season {season.seasonNumber}</option>)}
+                      {(detail.seasons || []).map((season) => <option key={season.seasonNumber} value={season.seasonNumber}>{season.seasonNumber === 0 ? "Specials" : `Season ${season.seasonNumber}`}</option>)}
                     </select></label>
                     {selectedSeasonData ? <span>{selectedSeasonData.watchedEpisodes}/{selectedSeasonData.totalEpisodes || selectedSeasonData.episodesCount} watched</span> : null}
                     <div>
@@ -1491,8 +1517,8 @@ export function DetailModal({
                       {selectedSeasonData.episodes.map((episode) => (
                         <button aria-label={`Open ${episode.title}`} className={`cinematic-episode ${episode.watched ? "watched" : ""}`} key={episode.id} onClick={() => onOpenEpisode?.({ episodeId: episode.episodeId || episode.id, showId: detail.showId, kind: "episode", title: episode.title, subtitle: episode.code, meta: `${detail.title} - ${episode.code}` })} type="button">
                           <span className="episode-still"><PosterArtwork item={episode} /></span>
-                          <span><small>{episode.code}{episode.airDate ? ` · ${shortDate(episode.airDate)}` : ""}</small><strong>{episode.title}</strong><em>{episode.runtime ? `${episode.runtime} min` : ""}</em></span>
-                          <b>{episode.watched ? "Watched" : episode.playableItemId ? "Play" : "Not watched"}</b>
+                          <span><small>{episode.code}{episode.airDate ? ` · ${shortDate(episode.airDate)}` : ""}</small><strong>{episode.title}</strong><em>{[episode.runtime ? `${episode.runtime} min` : "", episode.watchedAt ? `Watched ${shortDate(episode.watchedAt)}` : "", episode.rating ? `Rated ${episode.rating}/10` : "", episode.hasNote ? "Private note" : ""].filter(Boolean).join(" · ")}</em></span>
+                          <b>{episode.watched ? "Watched" : playerEnabled && episode.playableItemId ? "Play" : "Not watched"}</b>
                         </button>
                       ))}
                     </div>
@@ -1527,7 +1553,7 @@ export function DetailModal({
                 <section className="detail-section"><div className="detail-section-heading"><strong>Watch history</strong><span>{detail.watchHistory?.length || 0} entries</span></div><div className="watch-history compact-history">{detail.watchHistory?.length ? detail.watchHistory.map((watch) => <div key={watch.id}><span>{shortDate(watch.watchedAt) || "Unknown date"}</span><strong>{sourceLabel(watch.source)}</strong></div>) : <em>No watch history yet</em>}</div></section>
               ) : null}
 
-              {activeTab === "provider" ? (
+              {playerEnabled && activeTab === "provider" ? (
                 <section className="provider-detail-panel"><div><span className="eyebrow">Private playback</span><h3>{detail.provider?.linked ? "Ready from your source" : "No linked source"}</h3><p>{detail.provider?.linked ? `${detail.provider.linkedItemsCount} private source item${detail.provider.linkedItemsCount === 1 ? "" : "s"} linked. Playback history remains permanent even if the provider changes.` : "You can keep tracking manually or link an item from a provider you own."}</p></div>{detail.provider?.playableItemId ? <button className="primary-action" onClick={() => onPlay?.(detail)} type="button"><Play size={18} weight="fill" /> Play from private source</button> : null}{playback ? <video className="provider-video cinematic-video" controls src={playback.playbackUrl} /> : null}</section>
               ) : null}
 
@@ -1576,6 +1602,7 @@ function FocusSection({
   alerts,
   apiClient,
   collections,
+  features,
   globalQuery,
   onOpen,
   onPlayerRefresh,
@@ -1584,6 +1611,10 @@ function FocusSection({
   player,
   stats,
 }) {
+  if (activeSection === "discover") {
+    return <DiscoverSection apiClient={apiClient} onLibraryChanged={onPlayerRefresh} onOpen={onOpen} onSessionExpired={onSessionExpired} />;
+  }
+
   if (activeSection === "shows") {
     return (
       <ShowLibrary
@@ -1591,6 +1622,7 @@ function FocusSection({
         initialSearch={globalQuery}
         onOpen={onOpen}
         onSessionExpired={onSessionExpired}
+        showProviderStatus={Boolean(features?.webPlayerEnabled)}
       />
     );
   }
@@ -1602,6 +1634,7 @@ function FocusSection({
         initialSearch={globalQuery}
         onOpen={onOpen}
         onSessionExpired={onSessionExpired}
+        showProviderStatus={Boolean(features?.webPlayerEnabled)}
       />
     );
   }
@@ -1616,24 +1649,15 @@ function FocusSection({
     );
   }
 
-  if (activeSection === "alerts") {
-    return (
-      <div className="focus-block alert-board">
-        {alerts.map((alert) => (
-          <button className="wide-alert" key={alert.id} onClick={() => onOpen(alert)} type="button">
-            <Bell size={24} />
-            <span>
-              <strong>{alert.title}</strong>
-              <small>{alert.subtitle}</small>
-            </span>
-            <em>{alert.dueText}</em>
-          </button>
-        ))}
-      </div>
-    );
+  if (activeSection === "calendar") {
+    return <CalendarSection apiClient={apiClient} onOpen={onOpen} onSessionExpired={onSessionExpired} />;
   }
 
-  if (activeSection === "player") {
+  if (activeSection === "alerts") {
+    return <AlertsSection apiClient={apiClient} onOpen={onOpen} onSessionExpired={onSessionExpired} />;
+  }
+
+  if (activeSection === "player" && features?.webPlayerEnabled) {
     return (
       <PlayerSection
         apiClient={apiClient}
@@ -1646,22 +1670,22 @@ function FocusSection({
   }
 
   if (activeSection === "stats") {
-    return (
-      <div className="focus-block metrics-board">
-        <StatsStrip stats={stats} />
-        <ActivityChart activity={activity} />
-      </div>
-    );
+    return <StatsSection apiClient={apiClient} onSessionExpired={onSessionExpired} />;
+  }
+
+  if (activeSection === "lists") {
+    return <ListsSection apiClient={apiClient} onOpen={onOpen} onSessionExpired={onSessionExpired} />;
   }
 
   if (activeSection === "settings") {
-    return (
+    return features?.webProvidersEnabled ? (
       <SettingsSection
         apiClient={apiClient}
         onOpenPlayer={() => onSelectSection("player")}
         onSessionExpired={onSessionExpired}
+        providersEnabled={Boolean(features?.webProvidersEnabled)}
       />
-    );
+    ) : <WebSettingsSection apiClient={apiClient} onSessionExpired={onSessionExpired} />;
   }
 
   return null;
@@ -2033,6 +2057,7 @@ export function App() {
       <Sidebar
         activeSection={activeSection}
         alertsCount={unreadCount}
+        features={dashboard.features}
         onSelect={setActiveSection}
       />
       <main className="dashboard-shell">
@@ -2078,6 +2103,7 @@ export function App() {
                 apiClient={apiRequest}
                 activity={dashboard.activity}
                 collections={collections}
+                features={dashboard.features}
                 globalQuery={query}
                 onOpen={openItem}
                 onPlayerRefresh={refreshDashboard}
@@ -2134,6 +2160,7 @@ export function App() {
         onSaveRating={handleSaveRating}
         onToggleWatchlist={handleToggleWatchlist}
         playback={detailPlayback}
+        playerEnabled={Boolean(dashboard.features?.webPlayerEnabled)}
       />
     </div>
   );

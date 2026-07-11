@@ -14,6 +14,7 @@ class Alert extends Model
     protected $fillable = [
         'user_id',
         'category',
+        'dedupe_key',
         'title',
         'subtitle',
         'due_text',

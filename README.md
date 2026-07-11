@@ -8,6 +8,16 @@ Provider-independent personal media operating system with a React/Vite dashboard
 - `scripts/import_tvtime.py`: imports the preserved TV Time GDPR export into ignored private outputs.
 - `backend/`: Laravel 13 backend for invite-only users, Filament admin, analytics, audit logs, media events, alerts, per-user libraries, provider-owned player state, manual watch history, ratings, notes, and safe backups.
 
+MediaHub Web V1 is the default product surface. Its navigation is Home, Discover, Movies, Shows, History, Calendar, Alerts, Stats, Lists, and Settings. Provider setup and playback remain available to backend/admin and future native clients but are hidden from the normal web experience by default.
+
+```dotenv
+MEDIAHUB_WEB_PLAYER_ENABLED=false
+MEDIAHUB_WEB_PROVIDERS_ENABLED=false
+MEDIAHUB_VERSION=1.0.0
+```
+
+See `docs/mediahub/WEB_PRODUCT_SCOPE.md` and `docs/mediahub/MEDIAHUB_V1_CHECKLIST.md`.
+
 The staging login page at `https://ccc.razbudise.mk` is publicly reachable. Laravel session authentication protects private routes, while Apache keeps the staging-only `X-Robots-Tag: noindex` header. The browser-level Apache Basic Auth gate was removed with explicit approval on 2026-07-11.
 
 ## Privacy Rules
@@ -37,7 +47,7 @@ See `docs/mediahub/CANONICAL_MEDIA_CONTRACT.md`.
 
 ## Player Provider Rule
 
-The Player is available only when a user attaches their own provider/source. Users without a provider still use the dashboard and manual library normally as a watch-history tracker.
+The provider/player backend is retained for future native clients and explicit feature-enabled environments. It is hidden from normal Web V1 navigation and Settings. Users use discovery, tracking, library, calendar, stats, lists, and manual history without a provider.
 
 Rules:
 
@@ -197,16 +207,16 @@ The React dashboard now has user-facing canonical library browsers:
 
 These screens call user-scoped `/api/v1/library/*` endpoints and never use provider/source item lists for normal library search. Provider URLs, stream URLs, playlist URLs, credentials, API keys, secrets, and raw provider settings remain excluded from dashboard, library, search, and history payloads.
 
-## Discovery And Private Provider Catalog
+## Web Discovery And Deferred Provider Catalog
 
 Global search now has two explicit modes:
 
 - **My Library** searches the authenticated user's canonical movies, shows, and episodes.
 - **Discover** queries TMDB through Laravel and can add a movie/show to the canonical library or watchlist without requiring a provider.
 
-Provider configuration now lives under **Settings > Providers**. Users may configure an authorized Xtream-compatible API, M3U playlist, XMLTV source, or manual source. Credentials and locators are encrypted; provider summaries expose configuration/status booleans and counts only.
+When explicitly enabled for compatibility testing, Provider Settings support authorized Xtream-compatible APIs, M3U playlists, XMLTV sources, and manual sources. Credentials and locators remain encrypted; provider summaries expose configuration/status booleans and counts only. The Player can browse Home, Movies, Shows, Live TV, TV Guide, and Search, but none of these surfaces are enabled in normal Web V1.
 
-The Player is a catalog browser, not a provider setup form. With a provider it offers Home, Movies, Shows, Live TV, TV Guide, and Search views. Without a provider it links to Provider Settings while all manual library features remain available. Catalog list responses never contain raw provider or playback URLs; only the owner-only play endpoint returns the URL required for the active player session.
+Catalog list responses never contain raw provider or playback URLs; only the owner-only play endpoint returns the URL required for one active player session. Disabling the web feature flags does not delete existing provider records.
 
 Refresh one provider catalog with:
 
@@ -216,6 +226,30 @@ php artisan mediahub:refresh-provider {provider_id}
 ```
 
 See `docs/mediahub/DISCOVERY_AND_PROVIDER_PLAYER_SPEC.md`.
+
+## Web V1 Data And Repair Commands
+
+The authenticated web API now provides release calendar, alerts/preferences, database-derived statistics, private lists, settings metadata, and provider-safe user exports:
+
+```text
+GET /api/v1/calendar
+GET /api/v1/alerts
+GET /api/v1/stats
+GET /api/v1/lists
+GET /api/v1/settings
+GET /api/v1/exports/json
+GET /api/v1/exports/csv/{dataset}
+```
+
+Inspect deterministic imported relationship repairs before applying them:
+
+```bash
+cd backend
+php artisan mediahub:repair-import-relationships {user_id} --dry-run
+php artisan mediahub:repair-import-relationships {user_id} --apply
+```
+
+Apply mode creates a private user backup first. It never invents missing episode rows or deletes canonical history. See `docs/mediahub/IMPORT_RELATIONSHIP_REPAIR.md`.
 
 ## Backend Setup
 

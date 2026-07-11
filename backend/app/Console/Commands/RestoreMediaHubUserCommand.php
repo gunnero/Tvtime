@@ -7,6 +7,8 @@ use App\Enums\MediaEventType;
 use App\Models\Episode;
 use App\Models\EpisodeWatch;
 use App\Models\MediaLink;
+use App\Models\MediaList;
+use App\Models\MediaListItem;
 use App\Models\Movie;
 use App\Models\MovieWatch;
 use App\Models\Note;
@@ -242,6 +244,30 @@ class RestoreMediaHubUserCommand extends Command
             }
         }
 
+        foreach ($this->rows($tables, 'media_lists') as $row) {
+            $list = MediaList::create([
+                'user_id' => $user->id,
+                'name' => $this->stringOrDefault($row['name'] ?? null, 'Untitled list'),
+                'description' => $this->stringOrNull($row['description'] ?? null),
+                'visibility' => 'private',
+            ]);
+
+            foreach ($this->rows(['items' => $row['items'] ?? []], 'items') as $itemRow) {
+                $mediaType = $this->stringOrNull($itemRow['media_type'] ?? null);
+                $mediaId = $this->mappedMediaId($mediaType, (int) ($itemRow['media_old_id'] ?? 0), $movieMap, $showMap, $episodeMap);
+                if (! in_array($mediaType, ['movie', 'show'], true) || ! $mediaId) {
+                    continue;
+                }
+                MediaListItem::create([
+                    'user_id' => $user->id,
+                    'media_list_id' => $list->id,
+                    'media_type' => $mediaType,
+                    'media_id' => $mediaId,
+                    'position' => $this->intValue($itemRow['position'] ?? 0),
+                ]);
+            }
+        }
+
         foreach ($this->rows($tables, 'media_links') as $row) {
             $sourceItem = PlaybackSourceItem::forUser($user)->find((int) ($row['playback_source_item_id'] ?? 0));
 
@@ -285,6 +311,7 @@ class RestoreMediaHubUserCommand extends Command
             'episode_watches' => EpisodeWatch::forUser($user)->count(),
             'ratings' => Rating::forUser($user)->count(),
             'notes' => Note::forUser($user)->count(),
+            'media_lists' => MediaList::forUser($user)->count(),
             'media_links' => MediaLink::forUser($user)->count(),
             'playback_progress' => PlaybackProgress::forUser($user)->count(),
         ];
@@ -292,6 +319,7 @@ class RestoreMediaHubUserCommand extends Command
 
     private function clearRestorableData(User $user): void
     {
+        MediaList::forUser($user)->delete();
         MediaLink::forUser($user)->delete();
         PlaybackProgress::forUser($user)->delete();
         EpisodeWatch::forUser($user)->delete();

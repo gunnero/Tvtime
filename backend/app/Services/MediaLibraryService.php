@@ -21,7 +21,8 @@ class MediaLibraryService
     public function statsFor(User $user): array
     {
         $episodeMinutes = (int) EpisodeWatch::forUser($user)->sum('runtime');
-        $movieMinutes = (int) MovieWatch::forUser($user)->sum('runtime');
+        $movieMinutes = (int) MovieWatch::forUser($user)->get(['runtime', 'watch_count'])
+            ->sum(fn (MovieWatch $watch): int => $watch->runtime * max(1, $watch->watch_count));
         $manualWatchesCount = MovieWatch::forUser($user)->where('source', 'manual')->count()
             + EpisodeWatch::forUser($user)->where('source', 'manual')->count();
         $autoTrackedWatchesCount = MovieWatch::forUser($user)->where('source', 'provider')->count()

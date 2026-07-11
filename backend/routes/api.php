@@ -2,14 +2,19 @@
 
 use App\Http\Controllers\Api\V1\AlertController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CalendarController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\DiscoveryController;
+use App\Http\Controllers\Api\V1\ExportController;
 use App\Http\Controllers\Api\V1\InviteAcceptanceController;
 use App\Http\Controllers\Api\V1\LibraryBrowserController;
 use App\Http\Controllers\Api\V1\ManualLibraryController;
 use App\Http\Controllers\Api\V1\MediaEventController;
+use App\Http\Controllers\Api\V1\MediaListController;
 use App\Http\Controllers\Api\V1\PlayerController;
 use App\Http\Controllers\Api\V1\ProviderController;
+use App\Http\Controllers\Api\V1\SettingsController;
+use App\Http\Controllers\Api\V1\StatisticsController;
 use App\Http\Controllers\Api\V1\StatusController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,8 +27,24 @@ Route::prefix('v1')->middleware('web')->group(function (): void {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/dashboard', DashboardController::class);
+        Route::get('/calendar', CalendarController::class);
+        Route::get('/stats', StatisticsController::class);
+        Route::get('/settings', SettingsController::class);
+        Route::get('/alerts', [AlertController::class, 'index']);
         Route::post('/alerts/{alert}/read', [AlertController::class, 'read']);
         Route::post('/alerts/read-all', [AlertController::class, 'readAll']);
+        Route::get('/notification-preferences', [AlertController::class, 'preferences']);
+        Route::patch('/notification-preferences', [AlertController::class, 'updatePreferences']);
+        Route::get('/lists', [MediaListController::class, 'index']);
+        Route::post('/lists', [MediaListController::class, 'store']);
+        Route::get('/lists/{list}', [MediaListController::class, 'show']);
+        Route::patch('/lists/{list}', [MediaListController::class, 'update']);
+        Route::delete('/lists/{list}', [MediaListController::class, 'destroy']);
+        Route::post('/lists/{list}/items', [MediaListController::class, 'addItem']);
+        Route::delete('/lists/{list}/items/{item}', [MediaListController::class, 'removeItem']);
+        Route::patch('/lists/{list}/reorder', [MediaListController::class, 'reorder']);
+        Route::get('/exports/json', [ExportController::class, 'json'])->middleware('throttle:5,1');
+        Route::get('/exports/csv/{dataset}', [ExportController::class, 'csv'])->middleware('throttle:10,1');
         Route::get('/media-events', [MediaEventController::class, 'index']);
         Route::get('/media-events/recent', [MediaEventController::class, 'recent']);
         Route::get('/library/movies', [LibraryBrowserController::class, 'movies']);

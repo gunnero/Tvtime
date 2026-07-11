@@ -6,6 +6,8 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Episode;
 use App\Models\EpisodeWatch;
+use App\Models\MediaList;
+use App\Models\MediaListItem;
 use App\Models\Movie;
 use App\Models\MovieWatch;
 use App\Models\PlaybackSource;
@@ -30,6 +32,15 @@ class UserBackupRestoreTest extends TestCase
     public function test_backup_file_is_created_without_stream_urls_or_provider_secrets(): void
     {
         $user = $this->userWithLibrary();
+        $other = $this->member('backup-other@example.test');
+        $otherMovie = Movie::create(['user_id' => $other->id, 'title' => 'Other Backup Movie']);
+        MediaListItem::create([
+            'user_id' => $other->id,
+            'media_list_id' => MediaList::forUser($user)->firstOrFail()->id,
+            'media_type' => 'movie',
+            'media_id' => $otherMovie->id,
+            'position' => 99,
+        ]);
 
         $this->artisan("mediahub:backup-user {$user->id}")
             ->expectsOutputToContain('MediaHub backup created')
@@ -45,11 +56,13 @@ class UserBackupRestoreTest extends TestCase
         $this->assertStringContainsString('"movies"', $json);
         $this->assertStringContainsString('"ratings"', $json);
         $this->assertStringContainsString('"notes"', $json);
+        $this->assertStringContainsString('"media_lists"', $json);
         $this->assertStringNotContainsString('stream_url', $json);
         $this->assertStringNotContainsString('https://private.example.test/stream/movie', $json);
         $this->assertStringNotContainsString('https://private.example.test/playlist', $json);
         $this->assertStringNotContainsString('secret-token', $json);
         $this->assertStringNotContainsString('api-key', $json);
+        $this->assertCount(1, json_decode($json, true, flags: JSON_THROW_ON_ERROR)['tables']['media_lists'][0]['items']);
     }
 
     public function test_restore_rebuilds_user_library_and_private_annotations(): void
@@ -77,6 +90,7 @@ class UserBackupRestoreTest extends TestCase
         $this->assertDatabaseHas('episode_watches', ['user_id' => $user->id, 'source' => 'manual']);
         $this->assertDatabaseHas('ratings', ['user_id' => $user->id, 'media_type' => 'movie', 'rating' => 8]);
         $this->assertDatabaseHas('notes', ['user_id' => $user->id, 'media_type' => 'movie', 'body' => 'Private backup note.']);
+        $this->assertDatabaseHas('media_lists', ['user_id' => $user->id, 'name' => 'Backup Favorites', 'visibility' => 'private']);
     }
 
     public function test_restore_rejects_files_outside_private_backup_directory(): void
@@ -150,6 +164,9 @@ class UserBackupRestoreTest extends TestCase
         $this->actingAs($user)
             ->postJson("/api/v1/library/movies/{$movie->id}/notes", ['body' => 'Private backup note.'])
             ->assertCreated();
+
+        $list = MediaList::create(['user_id' => $user->id, 'name' => 'Backup Favorites', 'visibility' => 'private']);
+        MediaListItem::create(['user_id' => $user->id, 'media_list_id' => $list->id, 'media_type' => 'movie', 'media_id' => $movie->id, 'position' => 1]);
 
         $source = PlaybackSource::create([
             'user_id' => $user->id,

@@ -33,6 +33,18 @@ Current routes:
 - `GET /api/v1/dashboard`
 - `POST /api/v1/alerts/{alert}/read`
 - `POST /api/v1/alerts/read-all`
+- `GET /api/v1/alerts`
+- `GET|PATCH /api/v1/notification-preferences`
+- `GET /api/v1/calendar`
+- `GET /api/v1/stats`
+- `GET /api/v1/settings`
+- `GET|POST /api/v1/lists`
+- `GET|PATCH|DELETE /api/v1/lists/{list}`
+- `POST /api/v1/lists/{list}/items`
+- `DELETE /api/v1/lists/{list}/items/{item}`
+- `PATCH /api/v1/lists/{list}/reorder`
+- `GET /api/v1/exports/json`
+- `GET /api/v1/exports/csv/{dataset}`
 - `GET /api/v1/media-events`
 - `GET /api/v1/media-events/recent`
 - `GET /api/v1/library/movies`
@@ -84,6 +96,20 @@ Current routes:
 - `PATCH /api/v1/player/sessions/{session}`
 
 The API uses session-backed same-origin authentication. Public registration is intentionally absent; users are created through invites or admin management.
+
+## Web V1 Feature Flags
+
+The provider/player APIs and data model stay available for future native clients while normal Web V1 hides those surfaces by default:
+
+```dotenv
+MEDIAHUB_WEB_PLAYER_ENABLED=false
+MEDIAHUB_WEB_PROVIDERS_ENABLED=false
+MEDIAHUB_VERSION=1.0.0
+```
+
+`GET /api/v1/dashboard` returns these flags under `features`. They control web presentation only and must never delete or migrate provider data.
+
+Web V1 calendar, alerts, statistics, lists, settings, and export services query only the authenticated user's rows. JSON/CSV exports include canonical media, history, ratings, notes, and lists but exclude playback sources, provider settings, locators, credentials, secrets, and tokens.
 
 `GET /api/v1/dashboard` returns the dashboard-compatible JSON shape consumed by the React app. Detail endpoints return safe canonical item payloads with watch history, rating, private notes, provider link status, and show season/episode groups, but never raw stream URLs or provider settings.
 
@@ -249,6 +275,19 @@ Safety behavior:
 - raw GDPR/token/device/IP data is never printed
 - command output is limited to imported counts
 - existing media rows for that one user are replaced; other users are untouched
+
+## Repair Imported Relationships
+
+Use dry-run first when imported show counters and canonical episode relationships disagree:
+
+```bash
+php artisan mediahub:repair-import-relationships {user_id} --dry-run
+php artisan mediahub:repair-import-relationships {user_id} --apply
+```
+
+The repair is same-user, deterministic, idempotent, and summary-only. Apply mode creates a private backup before writing. It may connect a canonical episode and watch to one provable same-user show or raise counters to canonical row counts. It never deletes history or annotations and never creates fictional episodes from aggregate totals.
+
+See `../docs/mediahub/IMPORT_RELATIONSHIP_REPAIR.md`.
 
 ## Admin
 

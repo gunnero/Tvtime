@@ -1,0 +1,88 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AlertsSection, CalendarSection, DiscoverSection, ListsSection, StatsSection, WebSettingsSection } from "./WebV1Surfaces.jsx";
+
+afterEach(() => cleanup());
+
+describe("MediaHub Web V1 surfaces", () => {
+  it("discovers a movie and adds it without exposing TMDB configuration", async () => {
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path.startsWith("/api/v1/discover/search")) return { status: "ready", items: [{ media_type: "movie", tmdb_id: 949, title: "Heat", year: "1995", overview: "Crime saga.", poster: "" }] };
+      if (path === "/api/v1/discover/movies/949/add" && options.method === "POST") return { item: { id: 42 } };
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<DiscoverSection apiClient={apiClient} onLibraryChanged={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/search movies and shows/i), { target: { value: "heat" } });
+    expect(await screen.findByText("Heat", {}, { timeout: 2000 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /add to watchlist/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/discover/movies/949/add", { method: "POST", body: { action: "watchlist" } }));
+    expect(document.body.textContent).not.toMatch(/api[_ -]?key/i);
+  });
+
+  it("renders the release calendar and opens an episode", async () => {
+    const onOpen = vi.fn();
+    const today = new Date();
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const apiClient = vi.fn().mockResolvedValue({ items: [{ id: "episode-1" }], days: { [key]: [{ id: "episode-1", kind: "episode", episodeId: 1, showId: 2, title: "Severance", subtitle: "S02E03 · Return", date: key }] } });
+    render(<CalendarSection apiClient={apiClient} onOpen={onOpen} />);
+    expect(await screen.findByText("Severance")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /severance/i }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ episodeId: 1 }));
+  });
+
+  it("renders database-backed stats", async () => {
+    const apiClient = vi.fn().mockResolvedValue({ summary: { moviesWatched: 12, episodesWatched: 80, showsCompleted: 3, totalWatchHours: 71.5, rewatchCount: 2, longestStreakDays: 5 }, monthlyActivity: [], yearlyActivity: [{ period: "2026", watches: 92, minutes: 4290 }], genres: [{ genre: "Drama", count: 8 }], ratings: [{ rating: 9, count: 4 }], topShows: [], topMovies: [] });
+    render(<StatsSection apiClient={apiClient} />);
+    expect(await screen.findByText("71.5")).toBeInTheDocument();
+    expect(screen.getByText("Drama")).toBeInTheDocument();
+    expect(screen.getByText("2026")).toBeInTheDocument();
+    expect(screen.getByText("9/10")).toBeInTheDocument();
+  });
+
+  it("creates a private list", async () => {
+    let lists = [];
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path === "/api/v1/lists" && !options.method) return { lists };
+      if (path === "/api/v1/lists" && options.method === "POST") { lists = [{ id: 1, name: options.body.name, visibility: "private", itemsCount: 0, items: [] }]; return { list: lists[0] }; }
+      if (path === "/api/v1/lists/1" && options.method === "PATCH") { lists = [{ ...lists[0], name: options.body.name }]; return { list: lists[0] }; }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<ListsSection apiClient={apiClient} />);
+    fireEvent.change(screen.getByLabelText(/new list name/i), { target: { value: "Favorites" } });
+    fireEvent.click(screen.getByRole("button", { name: /create list/i }));
+    expect((await screen.findAllByText("Favorites")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/private/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /rename list/i }));
+    fireEvent.change(screen.getByRole("textbox", { name: /rename list/i }), { target: { value: "Best thrillers" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect((await screen.findAllByText("Best thrillers")).length).toBeGreaterThan(0);
+  });
+
+  it("renders useful alerts and marks one read", async () => {
+    let unread = true;
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path === "/api/v1/alerts") return { alerts: [{ id: 1, category: "upcoming", title: "Episode coming soon", subtitle: "Show · S01E02", dueText: "In 2 days", unread }], unread: unread ? 1 : 0 };
+      if (path === "/api/v1/alerts/1/read" && options.method === "POST") { unread = false; return { alert: { id: 1, unread: false } }; }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<AlertsSection apiClient={apiClient} />);
+    expect(await screen.findByText("Episode coming soon")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /mark episode coming soon read/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/alerts/1/read", { method: "POST" }));
+  });
+
+  it("shows final web settings without provider setup", async () => {
+    const apiClient = vi.fn(async (path) => {
+      if (path === "/api/v1/settings") return { profile: { name: "Gunner", email: "member@example.test", role: "member" }, metadata: { movies: { enriched: 3, total: 4 }, shows: { enriched: 2, total: 2 }, episodes: { enriched: 10, total: 12 } }, import: {}, export: { csvDatasets: ["movies"] }, version: "1.0.0" };
+      if (path === "/api/v1/notification-preferences") return { preferences: { newEpisodes: true, movieReleases: true, reminders: true, inAppEnabled: true, emailEnabled: false } };
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<WebSettingsSection apiClient={apiClient} />);
+    expect(await screen.findByText("Gunner")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^providers$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /import & export/i }));
+    expect(screen.getByRole("link", { name: /download full json/i })).toHaveAttribute("href", "/api/v1/exports/json");
+  });
+});

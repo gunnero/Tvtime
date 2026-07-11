@@ -7,6 +7,7 @@ use App\Enums\MediaEventType;
 use App\Models\Episode;
 use App\Models\EpisodeWatch;
 use App\Models\MediaLink;
+use App\Models\MediaList;
 use App\Models\Movie;
 use App\Models\MovieWatch;
 use App\Models\Note;
@@ -177,6 +178,17 @@ class BackupMediaHubUserCommand extends Command
                     'body' => $note->body,
                     'created_at' => $note->created_at?->toIso8601String(),
                     'updated_at' => $note->updated_at?->toIso8601String(),
+                ])->all(),
+                'media_lists' => MediaList::forUser($user)->with(['items' => fn ($query) => $query->forUser($user)])->orderBy('id')->get()->map(fn (MediaList $list): array => [
+                    'old_id' => $list->id,
+                    'name' => $list->name,
+                    'description' => $list->description,
+                    'visibility' => $list->visibility,
+                    'items' => $list->items->map(fn ($item): array => [
+                        'media_type' => $item->media_type,
+                        'media_old_id' => $item->media_id,
+                        'position' => $item->position,
+                    ])->all(),
                 ])->all(),
                 'media_links' => MediaLink::forUser($user)->orderBy('id')->get()->map(fn (MediaLink $link): array => [
                     'playback_source_item_id' => $link->playback_source_item_id,
