@@ -16,15 +16,52 @@ use App\Models\Show;
 use App\Models\User;
 use App\Services\DashboardPayloadService;
 use App\Services\MediaMetadataService;
+use App\Services\TMDBClientService;
+use Closure;
+use Illuminate\Cache\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Mockery;
 use Tests\TestCase;
 
 class TmdbMetadataTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_tmdb_uses_dedicated_cache_store_instead_of_sqlite_default(): void
+    {
+        Config::set('cache.default', 'database');
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        Config::set('tmdb.cache_store', 'file');
+        Config::set('tmdb.cache_ttl', 86400);
+
+        $cache = Mockery::mock(Repository::class);
+        $cache->shouldReceive('remember')
+            ->once()
+            ->with(
+                Mockery::on(fn (string $key): bool => str_starts_with($key, 'tmdb:')
+                    && ! str_contains($key, 'test-key')
+                    && ! str_contains($key, 'Heat')),
+                86400,
+                Mockery::type(Closure::class),
+            )
+            ->andReturnUsing(fn (string $key, int $ttl, Closure $callback): mixed => $callback());
+        Cache::shouldReceive('store')->once()->with('file')->andReturn($cache);
+
+        Http::fake([
+            'api.themoviedb.org/3/search/movie*' => Http::response([
+                'results' => [['id' => 949, 'title' => 'Heat']],
+            ]),
+        ]);
+
+        $result = app(TMDBClientService::class)->searchMovie('Heat');
+
+        $this->assertSame(949, $result['results'][0]['id']);
+    }
 
     public function test_tmdb_disabled_does_not_enrich_movie_or_fail(): void
     {

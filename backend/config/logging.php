@@ -1,5 +1,6 @@
 <?php
 
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -71,6 +72,19 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
+        ],
+
+        'monitoring' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/mediahub-monitoring.log'),
+            'level' => 'warning',
+            'days' => (int) env('MEDIAHUB_MONITORING_RETENTION_DAYS', 14),
+            'formatter' => JsonFormatter::class,
+            'formatter_with' => [
+                'batchMode' => JsonFormatter::BATCH_MODE_JSON,
+                'appendNewline' => true,
+                'includeStacktraces' => false,
+            ],
         ],
 
         'slack' => [

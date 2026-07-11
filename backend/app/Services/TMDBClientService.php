@@ -112,42 +112,43 @@ class TMDBClientService
         $cacheKey = 'tmdb:'.sha1($path.'|'.json_encode($params, JSON_THROW_ON_ERROR));
         $ttl = max(60, (int) config('tmdb.cache_ttl', 86400));
 
-        return Cache::remember($cacheKey, $ttl, function () use ($params, $path): ?array {
-            try {
-                $response = Http::timeout(max(1, (int) config('tmdb.timeout', 20)))
-                    ->acceptJson()
-                    ->get(rtrim((string) config('tmdb.base_url'), '/').$path, [
-                        ...$params,
-                        'api_key' => config('tmdb.api_key'),
+        return Cache::store((string) config('tmdb.cache_store', 'file'))
+            ->remember($cacheKey, $ttl, function () use ($params, $path): ?array {
+                try {
+                    $response = Http::timeout(max(1, (int) config('tmdb.timeout', 20)))
+                        ->acceptJson()
+                        ->get(rtrim((string) config('tmdb.base_url'), '/').$path, [
+                            ...$params,
+                            'api_key' => config('tmdb.api_key'),
+                        ]);
+                } catch (Throwable) {
+                    $this->lastFailure = [
+                        'endpoint' => $path,
+                        'status' => null,
+                        'reason' => 'request_failed',
+                    ];
+                    Log::warning('TMDB request failed.', ['endpoint' => $path]);
+
+                    return null;
+                }
+
+                if (! $response->ok()) {
+                    $this->lastFailure = [
+                        'endpoint' => $path,
+                        'status' => $response->status(),
+                        'reason' => 'http_status',
+                    ];
+                    Log::warning('TMDB request returned non-success status.', [
+                        'endpoint' => $path,
+                        'status' => $response->status(),
                     ]);
-            } catch (Throwable) {
-                $this->lastFailure = [
-                    'endpoint' => $path,
-                    'status' => null,
-                    'reason' => 'request_failed',
-                ];
-                Log::warning('TMDB request failed.', ['endpoint' => $path]);
 
-                return null;
-            }
+                    return null;
+                }
 
-            if (! $response->ok()) {
-                $this->lastFailure = [
-                    'endpoint' => $path,
-                    'status' => $response->status(),
-                    'reason' => 'http_status',
-                ];
-                Log::warning('TMDB request returned non-success status.', [
-                    'endpoint' => $path,
-                    'status' => $response->status(),
-                ]);
+                $payload = $response->json();
 
-                return null;
-            }
-
-            $payload = $response->json();
-
-            return is_array($payload) ? $payload : null;
-        });
+                return is_array($payload) ? $payload : null;
+            });
     }
 }
