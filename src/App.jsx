@@ -23,6 +23,9 @@ import {
   getUnreadCount,
 } from "./lib/dashboard.js";
 import { apiRequest, SessionExpiredError } from "./lib/api.js";
+import { PlayerSection, SettingsSection } from "./components/MediaHubSurfaces.jsx";
+
+export { PlayerSection, SettingsSection } from "./components/MediaHubSurfaces.jsx";
 
 const generatedPosterPattern = /\/assets\/generated\/movie-poster-\d+\.png(?:[?#].*)?$/;
 
@@ -992,11 +995,16 @@ export function HistorySection({
 
 export function GlobalSearchPanel({
   apiClient = apiRequest,
+  onLibraryChanged,
   onOpen,
   onSessionExpired,
   query = "",
 }) {
+  const [mode, setMode] = useState("library");
   const [payload, setPayload] = useState({ movies: [], shows: [], episodes: [] });
+  const [discovery, setDiscovery] = useState({ status: "ready", items: [], pagination: {} });
+  const [preview, setPreview] = useState(null);
+  const [adding, setAdding] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const safeQuery = query.trim();
@@ -1004,9 +1012,10 @@ export function GlobalSearchPanel({
   useEffect(() => {
     let cancelled = false;
 
-    async function searchLibrary() {
+    async function searchMedia() {
       if (safeQuery.length < 2) {
         setPayload({ movies: [], shows: [], episodes: [] });
+        setDiscovery({ status: "ready", items: [], pagination: {} });
         setError("");
         return;
       }
@@ -1015,10 +1024,17 @@ export function GlobalSearchPanel({
       setError("");
 
       try {
-        const nextPayload = await apiClient(`/api/v1/library/search?${buildQueryString({ query: safeQuery })}`);
+        const path = mode === "discover"
+          ? `/api/v1/discover/search?${buildQueryString({ query: safeQuery, type: "all", page: 1 })}`
+          : `/api/v1/library/search?${buildQueryString({ query: safeQuery })}`;
+        const nextPayload = await apiClient(path);
 
         if (!cancelled) {
-          setPayload(nextPayload);
+          if (mode === "discover") {
+            setDiscovery(nextPayload);
+          } else {
+            setPayload(nextPayload);
+          }
         }
       } catch (searchError) {
         if (cancelled) {
@@ -1038,34 +1054,99 @@ export function GlobalSearchPanel({
       }
     }
 
-    searchLibrary();
+    searchMedia();
 
     return () => {
       cancelled = true;
     };
-  }, [apiClient, onSessionExpired, safeQuery]);
+  }, [apiClient, mode, onSessionExpired, safeQuery]);
 
   if (safeQuery.length < 2) {
     return null;
   }
 
-  const groups = [
-    { id: "movies", title: "Movies", items: payload.movies || [] },
-    { id: "shows", title: "Shows", items: payload.shows || [] },
-    { id: "episodes", title: "Episodes", items: payload.episodes || [] },
-  ];
+  const groups = mode === "discover"
+    ? [
+        { id: "movies", title: "Movies", items: (discovery.items || []).filter((item) => item.media_type === "movie") },
+        { id: "shows", title: "Shows", items: (discovery.items || []).filter((item) => item.media_type === "show") },
+      ]
+    : [
+        { id: "movies", title: "Movies", items: payload.movies || [] },
+        { id: "shows", title: "Shows", items: payload.shows || [] },
+        { id: "episodes", title: "Episodes", items: payload.episodes || [] },
+      ];
   const totalResults = groups.reduce((total, group) => total + group.items.length, 0);
+
+  async function addDiscovered(item, action) {
+    const key = `${item.media_type}-${item.tmdb_id}-${action}`;
+    setAdding(key);
+    setError("");
+
+    try {
+      const response = await apiClient(`/api/v1/discover/${item.media_type === "show" ? "shows" : "movies"}/${item.tmdb_id}/add`, {
+        method: "POST",
+        body: { action },
+      });
+      const libraryItem = response?.item;
+      const existingId = libraryItem?.movieId || libraryItem?.showId || libraryItem?.id;
+      setDiscovery((current) => ({
+        ...current,
+        items: current.items.map((candidate) => (
+          candidate.media_type === item.media_type && candidate.tmdb_id === item.tmdb_id
+            ? { ...candidate, already_in_library: true, existing_library_id: existingId }
+            : candidate
+        )),
+      }));
+      setPreview((current) => current ? { ...current, already_in_library: true, existing_library_id: existingId } : current);
+      await onLibraryChanged?.();
+    } catch (addError) {
+      if (addError instanceof SessionExpiredError) {
+        onSessionExpired?.();
+        return;
+      }
+      setError(addError.message || "Could not add this title.");
+    } finally {
+      setAdding("");
+    }
+  }
+
+  function openExisting(item) {
+    if (!item.existing_library_id) {
+      return;
+    }
+
+    onOpen?.({
+      id: item.existing_library_id,
+      kind: item.media_type,
+      title: item.title,
+      movieId: item.media_type === "movie" ? item.existing_library_id : undefined,
+      showId: item.media_type === "show" ? item.existing_library_id : undefined,
+      poster: item.poster,
+      backdrop: item.backdrop,
+    });
+  }
 
   return (
     <section className="global-search-panel">
       <div className="section-heading">
         <div>
-          <span>Canonical search</span>
+          <span>{mode === "discover" ? "Discovery search" : "Canonical search"}</span>
           <h2>Results for “{safeQuery}”</h2>
         </div>
         <em>{loading ? "Searching..." : `${totalResults} matches`}</em>
       </div>
+      <div className="search-mode-tabs" role="tablist" aria-label="Search mode">
+        <button aria-selected={mode === "library"} className={mode === "library" ? "active" : ""} onClick={() => setMode("library")} role="tab" type="button">
+          My Library
+        </button>
+        <button aria-selected={mode === "discover"} className={mode === "discover" ? "active" : ""} onClick={() => setMode("discover")} role="tab" type="button">
+          Discover
+        </button>
+      </div>
       {error ? <div className="detail-error">{error}</div> : null}
+      {mode === "discover" && discovery.status === "disabled" ? (
+        <div className="empty-strip compact">Discovery is unavailable until TMDB is enabled.</div>
+      ) : null}
       {groups.map((group) => (
         group.items.length ? (
           <div className="search-result-group" key={group.id}>
@@ -1075,15 +1156,18 @@ export function GlobalSearchPanel({
                 <button
                   aria-label={`Open ${item.title}`}
                   className="search-result-row"
-                  key={`${group.id}-${item.id}`}
-                  onClick={() => onOpen(item)}
+                  key={`${group.id}-${item.id || item.tmdb_id}`}
+                  onClick={() => mode === "discover" ? setPreview(item) : onOpen(item)}
                   type="button"
                 >
                   <PosterArtwork item={item} />
                   <span>
                     <strong>{item.title}</strong>
-                    <small>{item.meta || item.subtitle}</small>
+                    <small>{item.meta || item.subtitle || [item.year, item.media_type].filter(Boolean).join(" · ")}</small>
                   </span>
+                  {mode === "discover" ? (
+                    <b>{item.already_in_library ? "Already Added" : "Preview"}</b>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -1091,7 +1175,38 @@ export function GlobalSearchPanel({
         ) : null
       ))}
       {!loading && !error && totalResults === 0 ? (
-        <div className="empty-strip compact">No canonical matches yet</div>
+        <div className="empty-strip compact">{mode === "discover" ? "No discovery matches" : "No canonical matches yet"}</div>
+      ) : null}
+      {preview ? (
+        <div className="discovery-preview" role="dialog" aria-modal="true" aria-label={`${preview.title} discovery preview`}>
+          <button className="modal-close" onClick={() => setPreview(null)} type="button" aria-label="Close discovery preview">
+            <X size={18} />
+          </button>
+          <div className="discovery-preview-art">
+            <PosterArtwork item={preview} />
+          </div>
+          <div>
+            <span className="eyebrow">{preview.media_type}</span>
+            <h3>{preview.title}</h3>
+            <p>{preview.overview || "No overview is available yet."}</p>
+            <div className="metadata-strip">
+              {[preview.year, ...(preview.genres || [])].filter(Boolean).map((tag) => <span key={tag}>{tag}</span>)}
+            </div>
+            <div className="modal-actions">
+              {preview.already_in_library ? (
+                <button className="primary-action" onClick={() => openExisting(preview)} type="button">Open in My Library</button>
+              ) : (
+                <>
+                  <button className="primary-action" disabled={Boolean(adding)} onClick={() => addDiscovered(preview, "library")} type="button">Add to Library</button>
+                  <button className="secondary-action" disabled={Boolean(adding)} onClick={() => addDiscovered(preview, "watchlist")} type="button">Add to Watchlist</button>
+                  {preview.media_type === "movie" ? (
+                    <button className="text-action" disabled={Boolean(adding)} onClick={() => addDiscovered(preview, "watched")} type="button">Mark watched</button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
     </section>
   );
@@ -1203,6 +1318,7 @@ export function DetailModal({
   detailLoading = false,
   actionError = "",
   actionPending = false,
+  playback = null,
   onClose,
   onSaveRating,
   onClearRating,
@@ -1210,14 +1326,22 @@ export function DetailModal({
   onDeleteNote,
   onMarkWatched,
   onMarkUnwatched,
+  onToggleWatchlist,
+  onPlay,
   onOpenEpisode,
+  onMarkSeasonWatched,
+  onMarkSeasonUnwatched,
 }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedSeason, setSelectedSeason] = useState(null);
   const [noteBody, setNoteBody] = useState("");
   const closeButtonRef = useRef(null);
 
   useEffect(() => {
+    setActiveTab("overview");
+    setSelectedSeason(detail?.seasons?.[0]?.seasonNumber ?? null);
     setNoteBody(detail?.notes?.[0]?.body || "");
-  }, [detail?.id, detail?.kind, detail?.notes]);
+  }, [detail?.id, detail?.kind, detail?.notes, detail?.seasons]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -1231,10 +1355,7 @@ export function DetailModal({
     }
 
     document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
   if (!item) {
@@ -1245,266 +1366,175 @@ export function DetailModal({
   const view = detail || item;
   const primaryNote = detail?.notes?.[0] || null;
   const rating = detail?.rating?.rating || null;
-  const canManualWatch = detail?.kind === "movie" || detail?.kind === "episode";
-  const hasManualWatch = (detail?.watchHistory || []).some((watch) => watch.source === "manual");
   const metadata = detail?.metadata || view?.metadata || {};
-  const metadataTags = [
-    ...(metadata.genres || []),
+  const hasManualWatch = (detail?.watchHistory || []).some((watch) => watch.source === "manual");
+  const canManualWatch = detail?.kind === "movie" || detail?.kind === "episode";
+  const detailTimeline = detail?.timeline || [];
+  const selectedSeasonData = detail?.seasons?.find((season) => season.seasonNumber === selectedSeason) || detail?.seasons?.[0] || null;
+  const tabs = detail?.kind === "show"
+    ? [
+        ["overview", "Overview"],
+        ["episodes", "Episodes"],
+        ["activity", "Activity"],
+        ["notes", "Notes & Rating"],
+        ["provider", "Provider"],
+      ]
+    : [
+        ["overview", "Overview"],
+        ["activity", "Your Activity"],
+        ["notes", "Notes & Rating"],
+        ["history", "Watch History"],
+        ["provider", "Provider / Playback"],
+      ];
+  const publicTags = [
     metadata.releaseYear,
     metadata.runtime ? `${metadata.runtime} min` : null,
-    metadata.tmdbId ? `TMDB #${metadata.tmdbId}` : null,
-    metadata.imdbId ? `IMDb ${metadata.imdbId}` : null,
-    metadata.tvdbId ? `TVDB ${metadata.tvdbId}` : null,
-    metadata.metadataStatus,
+    ...(metadata.genres || []),
   ].filter(Boolean);
-  const providerLabel = detail?.provider?.linked
-    ? "Linked to your source"
-    : "Manual tracking only";
-  const detailTimeline = detail?.timeline || [];
 
   function submitNote(event) {
     event.preventDefault();
     onSaveNote?.(detail, noteBody, primaryNote);
   }
 
-  return (
-    <div className="modal-layer" role="presentation" onMouseDown={onClose}>
-      <section
-        className="detail-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${view.title} details`}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <button ref={closeButtonRef} className="modal-close" onClick={onClose} type="button" aria-label="Close">
-          <X size={20} />
-        </button>
-        {!isAlert ? (
-          <PosterArtwork item={view} className="modal-art" />
-        ) : (
-          <div className="modal-alert-art">
-            <Bell size={48} weight="duotone" />
-          </div>
-        )}
-        <div className="modal-copy">
-          <span className="eyebrow">{isAlert ? item.category : view.kind}</span>
-          <h2>{view.title}</h2>
-          <p>{isAlert ? item.subtitle : view.meta}</p>
-          {!isAlert ? (
-            <>
-              <dl>
-                <div>
-                  <dt>Status</dt>
-                  <dd>{view.status || item.badge || "saved"}</dd>
-                </div>
-                <div>
-                  <dt>Progress</dt>
-                  <dd>{view.progress || (view.watched ? 100 : 0)}%</dd>
-                </div>
-                <div>
-                  <dt>Watched</dt>
-                  <dd>{view.watched ? "Yes" : shortDate(view.watchedAt) || "Not yet"}</dd>
-                </div>
-              </dl>
+  if (isAlert) {
+    return (
+      <div className="modal-layer" role="presentation" onMouseDown={onClose}>
+        <section className="detail-modal alert-detail-modal" role="dialog" aria-modal="true" aria-label={`${item.title} details`} onMouseDown={(event) => event.stopPropagation()}>
+          <button ref={closeButtonRef} className="modal-close" onClick={onClose} type="button" aria-label="Close"><X size={20} /></button>
+          <div className="modal-alert-art"><Bell size={48} weight="duotone" /></div>
+          <div className="modal-copy"><span className="eyebrow">{item.category}</span><h2>{item.title}</h2><p>{item.subtitle}</p><strong>{item.dueText}</strong></div>
+        </section>
+      </div>
+    );
+  }
 
-              {metadataTags.length ? (
-                <div className="metadata-strip" aria-label="Metadata">
-                  {metadataTags.map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
+  return (
+    <div className="modal-layer cinematic-layer" role="presentation" onMouseDown={onClose}>
+      <section className="cinematic-detail" role="dialog" aria-modal="true" aria-label={`${view.title} details`} onMouseDown={(event) => event.stopPropagation()}>
+        <button ref={closeButtonRef} className="modal-close cinematic-close" onClick={onClose} type="button" aria-label="Close"><X size={20} /></button>
+        <header className="cinematic-header">
+          {backdropFor(view) ? <img className="cinematic-backdrop" src={backdropFor(view)} alt="" /> : <div className="cinematic-backdrop neutral" />}
+          <div className="cinematic-shade" />
+          <div className="cinematic-poster"><PosterArtwork item={view} /></div>
+          <div className="cinematic-title">
+            <span className="eyebrow">{view.kind || "media"}</span>
+            <h2>{view.title}</h2>
+            <div className="cinematic-meta">{publicTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+            <p>{view.overview || "This title is part of your permanent MediaHub library."}</p>
+            <div className="cinematic-actions">
+              {detail?.provider?.playableItemId ? (
+                <button className="primary-action" onClick={() => onPlay?.(detail)} type="button"><Play size={18} weight="fill" /> Play</button>
+              ) : null}
+              {canManualWatch ? (
+                <button className="secondary-action" disabled={actionPending} onClick={() => hasManualWatch ? onMarkUnwatched?.(detail) : onMarkWatched?.(detail)} type="button">
+                  <CheckCircle size={18} weight="fill" /> {hasManualWatch ? "Remove from Watch History" : "Add to Watch History"}
+                </button>
+              ) : null}
+              {detail?.kind === "movie" || detail?.kind === "show" ? (
+                <button className="text-action" disabled={actionPending} onClick={() => onToggleWatchlist?.(detail, !detail.watchlist)} type="button">
+                  {detail.watchlist ? "Remove Watchlist" : "Add to Watchlist"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        {detailLoading ? <div className="detail-state">Loading details...</div> : null}
+        {detailError ? <div className="detail-error">{detailError}</div> : null}
+        {actionError ? <div className="detail-error">{actionError}</div> : null}
+
+        {detail ? (
+          <div className="cinematic-body">
+            <nav className="detail-tabs" aria-label="Detail sections" role="tablist">
+              {tabs.map(([id, label]) => (
+                <button aria-selected={activeTab === id} className={activeTab === id ? "active" : ""} key={id} onClick={() => setActiveTab(id)} role="tab" type="button">{label}</button>
+              ))}
+            </nav>
+
+            <div className="detail-tab-panel" role="tabpanel">
+              {activeTab === "overview" ? (
+                <div className="overview-layout">
+                  <section className="detail-section overview-copy">
+                    <span className="eyebrow">Story</span>
+                    <h3>{detail.title}</h3>
+                    <p>{detail.overview || "No overview is available yet."}</p>
+                  </section>
+                  <section className="detail-facts">
+                    <div><span>Watched</span><strong>{detail.watched ? "Yes" : "Not yet"}</strong></div>
+                    <div><span>Your rating</span><strong>{rating ? `${rating}/10` : "Not rated"}</strong></div>
+                    <div><span>Provider</span><strong>{detail.provider?.linked ? "Linked" : "Manual only"}</strong></div>
+                    {detail.kind === "show" ? <div><span>Progress</span><strong>{detail.meta}</strong></div> : null}
+                  </section>
+                  {detail.kind === "show" && detail.nextUnwatchedEpisode ? (
+                    <button className="next-episode-card" onClick={() => onOpenEpisode?.({ ...detail.nextUnwatchedEpisode, kind: "episode", subtitle: detail.nextUnwatchedEpisode.code, meta: `${detail.title} · ${detail.nextUnwatchedEpisode.code}` })} type="button">
+                      <Play size={20} weight="fill" /><span><small>Continue next</small><strong>{detail.nextUnwatchedEpisode.title}</strong><em>{detail.nextUnwatchedEpisode.code}</em></span>
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 
-              {detailLoading ? <div className="detail-state">Loading details...</div> : null}
-              {detailError ? <div className="detail-error">{detailError}</div> : null}
-              {actionError ? <div className="detail-error">{actionError}</div> : null}
-
-              {detail ? (
-                <div className="manual-library-panel">
-                  <section className="detail-section">
-                    <div className="detail-section-heading">
-                      <strong>Your rating</strong>
-                      <span>{rating ? `${rating}/10` : "Not rated"}</span>
+              {activeTab === "episodes" && detail.kind === "show" ? (
+                <section className="episode-browser-panel">
+                  <div className="season-controls">
+                    <label><span>Season</span><select aria-label="Season" onChange={(event) => setSelectedSeason(Number(event.target.value))} value={selectedSeason ?? ""}>
+                      {(detail.seasons || []).map((season) => <option key={season.seasonNumber} value={season.seasonNumber}>Season {season.seasonNumber}</option>)}
+                    </select></label>
+                    {selectedSeasonData ? <span>{selectedSeasonData.watchedEpisodes}/{selectedSeasonData.totalEpisodes || selectedSeasonData.episodesCount} watched</span> : null}
+                    <div>
+                      <button className="text-action" onClick={() => onMarkSeasonWatched?.(detail, selectedSeason)} type="button">Mark season watched</button>
+                      <button className="text-action danger" onClick={() => onMarkSeasonUnwatched?.(detail, selectedSeason)} type="button">Mark season unwatched</button>
                     </div>
-                    <div className="rating-control" aria-label="Your rating">
-                      {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-                        <button
-                          aria-pressed={rating === value}
-                          className={rating === value ? "active" : ""}
-                          disabled={actionPending}
-                          key={value}
-                          onClick={() => onSaveRating?.(detail, value)}
-                          type="button"
-                        >
-                          {value}
+                  </div>
+                  {selectedSeasonData ? (
+                    <div className="cinematic-episode-list">
+                      {selectedSeasonData.episodes.map((episode) => (
+                        <button aria-label={`Open ${episode.title}`} className={`cinematic-episode ${episode.watched ? "watched" : ""}`} key={episode.id} onClick={() => onOpenEpisode?.({ episodeId: episode.episodeId || episode.id, showId: detail.showId, kind: "episode", title: episode.title, subtitle: episode.code, meta: `${detail.title} - ${episode.code}` })} type="button">
+                          <span className="episode-still"><PosterArtwork item={episode} /></span>
+                          <span><small>{episode.code}{episode.airDate ? ` · ${shortDate(episode.airDate)}` : ""}</small><strong>{episode.title}</strong><em>{episode.runtime ? `${episode.runtime} min` : ""}</em></span>
+                          <b>{episode.watched ? "Watched" : episode.playableItemId ? "Play" : "Not watched"}</b>
                         </button>
                       ))}
                     </div>
-                    <button
-                      className="text-action"
-                      disabled={actionPending || !rating}
-                      onClick={() => onClearRating?.(detail)}
-                      type="button"
-                    >
-                      Clear rating
-                    </button>
-                  </section>
+                  ) : <div className="empty-strip compact">No seasons available</div>}
+                </section>
+              ) : null}
 
+              {activeTab === "activity" ? (
+                <section className="detail-section">
+                  <div className="detail-section-heading"><strong>Entertainment diary</strong><span>{detailTimeline.length} moments</span></div>
+                  <div className="detail-timeline">
+                    {detailTimeline.length ? detailTimeline.map((event) => <div key={event.id}><span><strong>{event.title}</strong><small>{event.subtitle || sourceLabel(event.source)}</small></span><em>{shortDate(event.occurredAt)}</em></div>) : <em>Meaningful moments for this title will appear here.</em>}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeTab === "notes" ? (
+                <div className="notes-rating-grid">
                   <section className="detail-section">
-                    <div className="detail-section-heading">
-                      <strong>Private memory</strong>
-                      <span>{primaryNote ? "Saved" : "Only you can see this"}</span>
-                    </div>
-                    <form className="note-form" onSubmit={submitNote}>
-                      <label>
-                        <span>Note</span>
-                        <textarea
-                          aria-label="Private note"
-                          disabled={actionPending}
-                          onChange={(event) => setNoteBody(event.target.value)}
-                          value={noteBody}
-                        />
-                      </label>
-                      <div className="modal-actions">
-                        <button
-                          className="secondary-action"
-                          disabled={actionPending || !noteBody.trim()}
-                          type="submit"
-                        >
-                          Save note
-                        </button>
-                        {primaryNote ? (
-                          <button
-                            className="text-action danger"
-                            disabled={actionPending}
-                            onClick={() => onDeleteNote?.(detail, primaryNote)}
-                            type="button"
-                          >
-                            Delete note
-                          </button>
-                        ) : null}
-                      </div>
-                    </form>
+                    <div className="detail-section-heading"><strong>Your rating</strong><span>{rating ? `${rating}/10` : "Not rated"}</span></div>
+                    <div className="rating-control" aria-label="Your rating">{Array.from({ length: 10 }, (_, index) => index + 1).map((value) => <button aria-pressed={rating === value} className={rating === value ? "active" : ""} disabled={actionPending} key={value} onClick={() => onSaveRating?.(detail, value)} type="button">{value}</button>)}</div>
+                    <button className="text-action" disabled={actionPending || !rating} onClick={() => onClearRating?.(detail)} type="button">Clear rating</button>
                   </section>
-
                   <section className="detail-section">
-                    <div className="detail-section-heading">
-                      <strong>Watch history</strong>
-                      <span>{providerLabel}</span>
-                    </div>
-                    {canManualWatch ? (
-                      <button
-                        className="primary-action compact-action"
-                        disabled={actionPending}
-                        onClick={() =>
-                          hasManualWatch
-                            ? onMarkUnwatched?.(detail)
-                            : onMarkWatched?.(detail)
-                        }
-                        type="button"
-                      >
-                        <CheckCircle size={18} weight="fill" />
-                        {hasManualWatch ? "Remove manual watch" : "Add to watch history"}
-                      </button>
-                    ) : null}
-                    <div className="watch-history">
-                      {detail.watchHistory?.length ? (
-                        detail.watchHistory.map((watch) => (
-                          <div key={watch.id}>
-                            <span>{shortDate(watch.watchedAt) || "Unknown date"}</span>
-                            <strong>{sourceLabel(watch.source)}</strong>
-                          </div>
-                        ))
-                      ) : (
-                        <em>No watch history yet</em>
-                      )}
-                    </div>
-                  </section>
-
-                  {detail.kind === "show" && detail.seasons?.length ? (
-                    <section className="detail-section">
-                      <div className="detail-section-heading">
-                        <strong>Episodes</strong>
-                        <span>{detail.seasons.length} seasons</span>
-                      </div>
-                      <div className="season-browser">
-                        {detail.seasons.map((season) => (
-                          <div className="season-group" key={season.seasonNumber}>
-                            <div className="season-heading">
-                              <strong>Season {season.seasonNumber}</strong>
-                              <span>{season.watchedEpisodes}/{season.totalEpisodes} watched</span>
-                            </div>
-                            <div className="episode-list">
-                              {season.episodes.map((episode) => (
-                                <button
-                                  aria-label={`Open ${episode.title}`}
-                                  className={`episode-row ${episode.watched ? "watched" : ""}`}
-                                  key={episode.id}
-                                  onClick={() => onOpenEpisode?.({
-                                    episodeId: episode.episodeId || episode.id,
-                                    showId: episode.showId || detail.showId,
-                                    kind: "episode",
-                                    title: episode.title,
-                                    subtitle: episode.code,
-                                    meta: `${detail.title} - ${episode.code}`,
-                                  })}
-                                  type="button"
-                                >
-                                  <span>
-                                    <strong>{episode.title}</strong>
-                                    <small>{episode.code}</small>
-                                  </span>
-                                  <em>{episode.watched ? "Watched" : "Not watched"}</em>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  <section className="detail-section">
-                    <div className="detail-section-heading">
-                      <strong>Entertainment diary</strong>
-                      <span>{detailTimeline.length ? `${detailTimeline.length} moments` : "No moments yet"}</span>
-                    </div>
-                    <div className="detail-timeline">
-                      {detailTimeline.length ? (
-                        detailTimeline.slice(0, 3).map((event) => (
-                          <div key={event.id}>
-                            <span>
-                              <strong>{event.title}</strong>
-                              <small>{event.subtitle || sourceLabel(event.source)}</small>
-                            </span>
-                            <em>{shortDate(event.occurredAt) || sourceLabel(event.source)}</em>
-                          </div>
-                        ))
-                      ) : (
-                        <em>Meaningful moments for this title will appear here.</em>
-                      )}
-                    </div>
+                    <div className="detail-section-heading"><strong>Private memory</strong><span>{primaryNote ? "Saved" : "Only you can see this"}</span></div>
+                    <form className="note-form compact-note-form" onSubmit={submitNote}><label><span>Note</span><textarea aria-label="Private note" disabled={actionPending} onChange={(event) => setNoteBody(event.target.value)} value={noteBody} /></label><div className="modal-actions"><button className="secondary-action" disabled={actionPending || !noteBody.trim()} type="submit">Save note</button>{primaryNote ? <button className="text-action danger" disabled={actionPending} onClick={() => onDeleteNote?.(detail, primaryNote)} type="button">Delete note</button> : null}</div></form>
                   </section>
                 </div>
               ) : null}
-            </>
-          ) : (
-            <dl>
-              <div>
-                <dt>Alert</dt>
-                <dd>{item.dueText}</dd>
-              </div>
-              <div>
-                <dt>Delivery</dt>
-                <dd>Site only</dd>
-              </div>
-            </dl>
-          )}
-          <button className="primary-action" type="button" onClick={onClose}>
-            <CheckCircle size={18} weight="fill" />
-            Done
-          </button>
-        </div>
+
+              {activeTab === "history" ? (
+                <section className="detail-section"><div className="detail-section-heading"><strong>Watch history</strong><span>{detail.watchHistory?.length || 0} entries</span></div><div className="watch-history compact-history">{detail.watchHistory?.length ? detail.watchHistory.map((watch) => <div key={watch.id}><span>{shortDate(watch.watchedAt) || "Unknown date"}</span><strong>{sourceLabel(watch.source)}</strong></div>) : <em>No watch history yet</em>}</div></section>
+              ) : null}
+
+              {activeTab === "provider" ? (
+                <section className="provider-detail-panel"><div><span className="eyebrow">Private playback</span><h3>{detail.provider?.linked ? "Ready from your source" : "No linked source"}</h3><p>{detail.provider?.linked ? `${detail.provider.linkedItemsCount} private source item${detail.provider.linkedItemsCount === 1 ? "" : "s"} linked. Playback history remains permanent even if the provider changes.` : "You can keep tracking manually or link an item from a provider you own."}</p></div>{detail.provider?.playableItemId ? <button className="primary-action" onClick={() => onPlay?.(detail)} type="button"><Play size={18} weight="fill" /> Play from private source</button> : null}{playback ? <video className="provider-video cinematic-video" controls src={playback.playbackUrl} /> : null}</section>
+              ) : null}
+
+              <details className="metadata-details"><summary>Metadata</summary><dl><div><dt>Source</dt><dd>{metadata.metadataStatus || "local"}</dd></div>{metadata.tmdbId ? <div><dt>TMDB</dt><dd>{metadata.tmdbId}</dd></div> : null}{metadata.imdbId ? <div><dt>IMDb</dt><dd>{metadata.imdbId}</dd></div> : null}{metadata.tvdbId ? <div><dt>TVDB</dt><dd>{metadata.tvdbId}</dd></div> : null}</dl></details>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );
@@ -1540,744 +1570,6 @@ function aiCandidateToTarget(candidate) {
   };
 }
 
-export function PlayerSection({
-  apiClient = apiRequest,
-  onRefreshDashboard,
-  onSessionExpired,
-  player,
-}) {
-  const safePlayer = player || fallbackData.player;
-  const [sources, setSources] = useState([]);
-  const [items, setItems] = useState(safePlayer.sourceItems || []);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
-  const [itemQuery, setItemQuery] = useState("");
-  const [sourceForm, setSourceForm] = useState({
-    name: "",
-    providerType: "manual",
-    legalConfirmed: false,
-  });
-  const [itemForm, setItemForm] = useState({
-    sourceId: "",
-    title: "",
-    kind: "movie",
-    streamUrl: "",
-  });
-  const [linkingItem, setLinkingItem] = useState(null);
-  const [targetQuery, setTargetQuery] = useState("");
-  const [targetType, setTargetType] = useState("");
-  const [targets, setTargets] = useState([]);
-  const [selectedTarget, setSelectedTarget] = useState(null);
-  const [confirmLink, setConfirmLink] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState(null);
-  const [playback, setPlayback] = useState(null);
-  const [progressForm, setProgressForm] = useState({
-    positionSeconds: "0",
-    durationSeconds: "0",
-  });
-  const videoRef = useRef(null);
-
-  const continueWatching = safePlayer.continueWatching || [];
-  const sourceItems = items.length ? items : safePlayer.sourceItems || [];
-  const linkedItems = sourceItems.filter((item) => item.linked);
-  const unlinkedItems = sourceItems.filter((item) => !item.linked);
-  const activeSources = sources.filter((source) => source.status === "active");
-  const selectedSourceId = itemForm.sourceId || activeSources[0]?.id || sources[0]?.id || "";
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadInitialPlayerData() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const [sourcePayload, itemPayload] = await Promise.all([
-          apiClient("/api/v1/player/sources"),
-          apiClient("/api/v1/player/items"),
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        const nextSources = sourcePayload?.sources || [];
-
-        setSources(nextSources);
-        setItems(itemPayload?.items || []);
-
-        if (!itemForm.sourceId && nextSources[0]?.id) {
-          setItemForm((current) => ({ ...current, sourceId: String(nextSources[0].id) }));
-        }
-      } catch (loadError) {
-        if (cancelled) {
-          return;
-        }
-
-        if (loadError instanceof SessionExpiredError) {
-          onSessionExpired?.();
-          return;
-        }
-
-        setError(loadError.message || "Could not load player sources.");
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadInitialPlayerData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiClient, onSessionExpired]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    const playbackUrl = playback?.playbackUrl || "";
-
-    if (!video || !playbackUrl.includes(".m3u8") || video.canPlayType("application/vnd.apple.mpegurl")) {
-      return undefined;
-    }
-
-    let hls = null;
-    let cancelled = false;
-
-    import("hls.js/light").then(({ default: Hls }) => {
-      if (cancelled || !Hls.isSupported()) {
-        return;
-      }
-
-      hls = new Hls();
-      hls.loadSource(playbackUrl);
-      hls.attachMedia(video);
-    });
-
-    return () => {
-      cancelled = true;
-      hls?.destroy();
-    };
-  }, [playback?.playbackUrl]);
-
-  async function loadPlayerData(filters = {}) {
-    const params = new URLSearchParams();
-
-    if (filters.q) {
-      params.set("q", filters.q);
-    }
-
-    const itemPath = params.toString()
-      ? `/api/v1/player/items?${params.toString()}`
-      : "/api/v1/player/items";
-
-    const [sourcePayload, itemPayload] = await Promise.all([
-      apiClient("/api/v1/player/sources"),
-      apiClient(itemPath),
-    ]);
-
-    const nextSources = sourcePayload?.sources || [];
-
-    setSources(nextSources);
-    setItems(itemPayload?.items || []);
-
-    if (!itemForm.sourceId && nextSources[0]?.id) {
-      setItemForm((current) => ({ ...current, sourceId: String(nextSources[0].id) }));
-    }
-  }
-
-  async function runPlayerAction(action, pendingLabel = "Saving") {
-    setBusy(pendingLabel);
-    setError("");
-
-    try {
-      await action();
-    } catch (actionError) {
-      if (actionError instanceof SessionExpiredError) {
-        onSessionExpired?.();
-        return;
-      }
-
-      setError(actionError.message || "Player action failed.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleCreateSource(event) {
-    event.preventDefault();
-
-    await runPlayerAction(async () => {
-      await apiClient("/api/v1/player/sources", {
-        method: "POST",
-        body: {
-          name: sourceForm.name.trim(),
-          provider_type: sourceForm.providerType,
-          legal_confirmed: sourceForm.legalConfirmed,
-        },
-      });
-
-      setSourceForm({ name: "", providerType: "manual", legalConfirmed: false });
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, "Attaching");
-  }
-
-  async function handleSourceStatus(source, status) {
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/sources/${source.id}`, {
-        method: "PATCH",
-        body: { status },
-      });
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, status === "disabled" ? "Disabling" : "Enabling");
-  }
-
-  async function handleDeleteSource(source) {
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/sources/${source.id}`, { method: "DELETE" });
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, "Deleting");
-  }
-
-  async function handleCreateItem(event) {
-    event.preventDefault();
-
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/sources/${selectedSourceId}/items`, {
-        method: "POST",
-        body: {
-          title: itemForm.title.trim(),
-          kind: itemForm.kind,
-          stream_url: itemForm.streamUrl.trim(),
-        },
-      });
-
-      setItemForm((current) => ({ ...current, title: "", streamUrl: "" }));
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, "Adding");
-  }
-
-  async function handleSearchItems(event) {
-    event.preventDefault();
-
-    await runPlayerAction(async () => {
-      await loadPlayerData({ q: itemQuery.trim() });
-    }, "Searching");
-  }
-
-  function openLinkModal(item) {
-    setLinkingItem(item);
-    setTargetQuery(item.title || "");
-    setTargetType(item.kind === "show" ? "show" : item.kind === "episode" ? "episode" : "movie");
-    setTargets([]);
-    setSelectedTarget(null);
-    setConfirmLink(false);
-    setAiSuggestion(null);
-    setError("");
-  }
-
-  async function handleAskKalveriAI() {
-    await runPlayerAction(async () => {
-      const payload = await apiClient(`/api/v1/player/items/${linkingItem.id}/ai-match`, { method: "POST" });
-      const suggestion = payload?.suggestion || null;
-      const target = aiCandidateToTarget(suggestion?.candidate);
-
-      setAiSuggestion(suggestion);
-      if (target) {
-        setSelectedTarget(target);
-      }
-    }, "Asking Kalveri AI");
-  }
-
-  async function handleRejectKalveriAI() {
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/items/${linkingItem.id}/ai-match/reject`, { method: "POST" });
-      setAiSuggestion(null);
-      setSelectedTarget(null);
-    }, "Rejecting suggestion");
-  }
-
-  async function handleTargetSearch(event) {
-    event.preventDefault();
-
-    await runPlayerAction(async () => {
-      const params = new URLSearchParams();
-      if (targetQuery.trim()) {
-        params.set("q", targetQuery.trim());
-      }
-      if (targetType) {
-        params.set("type", targetType);
-      }
-
-      const payload = await apiClient(`/api/v1/player/link-targets?${params.toString()}`);
-      setTargets(payload?.targets || []);
-    }, "Searching");
-  }
-
-  async function handleLinkItem(event) {
-    event.preventDefault();
-
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/items/${linkingItem.id}/link`, {
-        method: "POST",
-        body: playerTargetPayload(selectedTarget, {
-          aiSuggestion: aiSuggestion?.candidateId === selectedTarget?.id
-            && aiSuggestion?.mediaType === selectedTarget?.type,
-        }),
-      });
-
-      setLinkingItem(null);
-      setTargets([]);
-      setSelectedTarget(null);
-      setConfirmLink(false);
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, "Linking");
-  }
-
-  async function handleUnlinkItem(item) {
-    await runPlayerAction(async () => {
-      await apiClient(`/api/v1/player/items/${item.id}/link`, { method: "DELETE" });
-      await loadPlayerData({ q: itemQuery });
-      await onRefreshDashboard?.();
-    }, "Unlinking");
-  }
-
-  async function handlePlayItem(item) {
-    await runPlayerAction(async () => {
-      const payload = await apiClient(`/api/v1/player/items/${item.id}/play`, { method: "POST" });
-
-      setPlayback({
-        item,
-        session: payload.session,
-        playbackUrl: payload.playbackUrl,
-      });
-      setProgressForm({
-        positionSeconds: "0",
-        durationSeconds: "",
-      });
-    }, "Starting");
-  }
-
-  async function handleSaveProgress(completed = false) {
-    if (!playback?.session?.id) {
-      return;
-    }
-
-    const position = Number(progressForm.positionSeconds || 0);
-    const duration = Number(progressForm.durationSeconds || 0);
-
-    await runPlayerAction(async () => {
-      const payload = await apiClient(`/api/v1/player/sessions/${playback.session.id}`, {
-        method: "PATCH",
-        body: {
-          position_seconds: position,
-          duration_seconds: duration,
-          completed,
-        },
-      });
-
-      setPlayback((current) => current ? { ...current, session: payload.session } : current);
-      await onRefreshDashboard?.();
-    }, completed ? "Completing" : "Saving");
-  }
-
-  function renderSourceItem(item) {
-    return (
-      <div className="player-row player-item-row" key={item.id}>
-        <FilmSlate size={22} />
-        <span>
-          <strong>{item.title}</strong>
-          <small>
-            {item.linked
-              ? `linked to ${item.link?.canonicalTitle || "library item"}`
-              : "needs linking"} · {item.sourceName}
-          </small>
-        </span>
-        <div className="player-row-actions">
-          <button className="text-action" onClick={() => handlePlayItem(item)} type="button">
-            Play {item.title}
-          </button>
-          {item.linked ? (
-            <button className="text-action danger" onClick={() => handleUnlinkItem(item)} type="button">
-              Unlink {item.title}
-            </button>
-          ) : (
-            <button className="text-action" onClick={() => openLinkModal(item)} type="button">
-              Link {item.title}
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="focus-block player-board">
-      {!safePlayer.enabled && (
-        <div className="quiet-note player-empty-state">
-          <Play size={34} weight="duotone" />
-          <h2>Player</h2>
-          <p>{safePlayer.emptyState}</p>
-        </div>
-      )}
-
-      {error ? <div className="detail-error">{error}</div> : null}
-
-      <section className="player-panel provider-panel">
-        <div className="section-heading">
-          <div>
-            <h2>Your private sources</h2>
-            <p>Playback is available only from sources attached to this account.</p>
-          </div>
-          <span>{sources.length} attached</span>
-        </div>
-        <form className="player-form" onSubmit={handleCreateSource}>
-          <label>
-            <span>Source name</span>
-            <input
-              onChange={(event) => setSourceForm((current) => ({ ...current, name: event.target.value }))}
-              placeholder="My NAS"
-              required
-              type="text"
-              value={sourceForm.name}
-            />
-          </label>
-          <label>
-            <span>Provider type</span>
-            <select
-              onChange={(event) => setSourceForm((current) => ({ ...current, providerType: event.target.value }))}
-              value={sourceForm.providerType}
-            >
-              <option value="manual">Manual source</option>
-              <option value="plex">Plex</option>
-              <option value="jellyfin">Jellyfin</option>
-              <option value="emby">Emby</option>
-              <option value="smb">SMB share</option>
-              <option value="nas">NAS</option>
-              <option value="local">Local folder</option>
-            </select>
-          </label>
-          <label className="check-row">
-            <input
-              checked={sourceForm.legalConfirmed}
-              onChange={(event) => setSourceForm((current) => ({ ...current, legalConfirmed: event.target.checked }))}
-              required
-              type="checkbox"
-            />
-            <span>This is my private source, and I am allowed to use it.</span>
-          </label>
-          <button className="primary-action" disabled={busy === "Attaching"} type="submit">
-            Attach source
-          </button>
-        </form>
-        <div className="provider-list">
-          {loading ? <div className="empty-strip compact">Loading providers...</div> : null}
-          {sources.map((source) => (
-            <div className="provider-row" key={source.id}>
-              <span>
-                <strong>{source.name}</strong>
-                <small>{source.providerType} · {source.status} · {source.itemsCount || 0} items</small>
-              </span>
-              <div>
-                {source.status === "active" ? (
-                  <button className="text-action" onClick={() => handleSourceStatus(source, "disabled")} type="button">
-                    Disable
-                  </button>
-                ) : (
-                  <button className="text-action" onClick={() => handleSourceStatus(source, "active")} type="button">
-                    Enable
-                  </button>
-                )}
-                <button className="text-action danger" onClick={() => handleDeleteSource(source)} type="button">
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-          {!loading && sources.length === 0 ? <div className="empty-strip compact">No providers attached</div> : null}
-        </div>
-      </section>
-
-      <section className="player-panel">
-        <div className="section-heading">
-          <div>
-            <h2>Add source item</h2>
-            <p>URLs stay private and are never shown in library lists.</p>
-          </div>
-          <span>Manual first</span>
-        </div>
-        <form className="player-form source-item-form" onSubmit={handleCreateItem}>
-          <label>
-            <span>Source</span>
-            <select
-              disabled={!sources.length}
-              onChange={(event) => setItemForm((current) => ({ ...current, sourceId: event.target.value }))}
-              value={String(selectedSourceId)}
-            >
-              {sources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Item title</span>
-            <input
-              disabled={!sources.length}
-              onChange={(event) => setItemForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Movie or episode file"
-              required
-              type="text"
-              value={itemForm.title}
-            />
-          </label>
-          <label>
-            <span>Kind</span>
-            <select
-              disabled={!sources.length}
-              onChange={(event) => setItemForm((current) => ({ ...current, kind: event.target.value }))}
-              value={itemForm.kind}
-            >
-              <option value="movie">Movie</option>
-              <option value="show">Show</option>
-              <option value="episode">Episode</option>
-            </select>
-          </label>
-          <label>
-            <span>Stream or file URL</span>
-            <input
-              disabled={!sources.length}
-              onChange={(event) => setItemForm((current) => ({ ...current, streamUrl: event.target.value }))}
-              placeholder="https://..."
-              required
-              type="url"
-              value={itemForm.streamUrl}
-            />
-          </label>
-          <button className="secondary-action" disabled={!sources.length || busy === "Adding"} type="submit">
-            Add source item
-          </button>
-        </form>
-      </section>
-
-      <section className="player-panel">
-        <div className="section-heading">
-          <h2>Continue watching</h2>
-          <span>{continueWatching.length} active</span>
-        </div>
-        <div className="player-list">
-          {continueWatching.length ? (
-            continueWatching.map((item) => (
-              <button className="player-row" key={item.id} type="button">
-                <Play size={22} weight="fill" />
-                <span>
-                  <strong>{item.title || "Untitled item"}</strong>
-                  <small>{item.kind || "source"} · {item.positionSeconds || 0}s</small>
-                </span>
-              </button>
-            ))
-          ) : (
-            <div className="empty-strip compact">Nothing in progress</div>
-          )}
-        </div>
-      </section>
-      <section className="player-panel">
-        <div className="section-heading">
-          <div>
-            <h2>Source items</h2>
-            <p>Linking connects playback to permanent watch history.</p>
-          </div>
-          <span>{sourceItems.length} available</span>
-        </div>
-        <form className="player-search" onSubmit={handleSearchItems}>
-          <label>
-            <span>Filter source items</span>
-            <input
-              onChange={(event) => setItemQuery(event.target.value)}
-              placeholder="Search source items"
-              type="search"
-              value={itemQuery}
-            />
-          </label>
-          <button className="secondary-action" type="submit">Search</button>
-        </form>
-        <div className="player-list source-item-groups">
-          {linkedItems.length ? (
-            <section className="source-item-group">
-              <div className="source-item-group-heading">
-                <h3>Linked to library</h3>
-                <span>{linkedItems.length}</span>
-              </div>
-              {linkedItems.slice(0, 20).map(renderSourceItem)}
-            </section>
-          ) : null}
-          {unlinkedItems.length ? (
-            <section className="source-item-group">
-              <div className="source-item-group-heading">
-                <h3>Needs linking</h3>
-                <span>{unlinkedItems.length}</span>
-              </div>
-              <p className="source-item-hint">Unlinked playback keeps progress on the source item only until you connect it to your library.</p>
-              {unlinkedItems.slice(0, 20).map(renderSourceItem)}
-            </section>
-          ) : null}
-          {!sourceItems.length ? <div className="empty-strip compact">No source items yet</div> : null}
-        </div>
-      </section>
-
-      {playback ? (
-        <section className="player-panel playback-panel">
-          <div className="section-heading">
-            <h2>Now playing</h2>
-            <span>{playback.session?.status || "playing"}</span>
-          </div>
-          <strong>{playback.item.title}</strong>
-          {!playback.item.linked ? (
-            <div className="data-warning">Progress is saved only to this private source until linked.</div>
-          ) : null}
-          <video
-            className="provider-video"
-            controls
-            data-testid="provider-video"
-            ref={videoRef}
-            src={playback.playbackUrl}
-          />
-          <div className="progress-controls">
-            <label>
-              <span>Position seconds</span>
-              <input
-                min="0"
-                onChange={(event) => setProgressForm((current) => ({ ...current, positionSeconds: event.target.value }))}
-                type="number"
-                value={progressForm.positionSeconds}
-              />
-            </label>
-            <label>
-              <span>Duration seconds</span>
-              <input
-                min="0"
-                onChange={(event) => setProgressForm((current) => ({ ...current, durationSeconds: event.target.value }))}
-                type="number"
-                value={progressForm.durationSeconds}
-              />
-            </label>
-            <button className="secondary-action" onClick={() => handleSaveProgress(false)} type="button">
-              Save progress
-            </button>
-            <button className="primary-action" onClick={() => handleSaveProgress(true)} type="button">
-              Mark complete
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="player-summary-grid">
-        <div>
-          <strong>{linkedItems.length}</strong>
-          <span>Linked</span>
-        </div>
-        <div>
-          <strong>{unlinkedItems.length}</strong>
-          <span>Unlinked</span>
-        </div>
-      </section>
-
-      {linkingItem ? (
-        <div className="modal-layer" role="presentation" onMouseDown={() => setLinkingItem(null)}>
-          <section
-            aria-label={`Link ${linkingItem.title}`}
-            aria-modal="true"
-            className="link-modal"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <button className="modal-close" onClick={() => setLinkingItem(null)} type="button" aria-label="Close">
-              <X size={18} />
-            </button>
-            <div className="section-heading">
-              <h2>Link source item</h2>
-              <span>{linkingItem.title}</span>
-            </div>
-            <div className="ai-match-panel">
-              <div>
-                <strong>Kalveri AI match assist</strong>
-                <small>Optional fallback. You still confirm every match.</small>
-              </div>
-              <button className="secondary-action" disabled={busy === "Asking Kalveri AI"} onClick={handleAskKalveriAI} type="button">
-                Ask Kalveri AI
-              </button>
-            </div>
-            {aiSuggestion ? (
-              <div className="ai-suggestion ready">
-                <strong>{aiSuggestion.status === "suggested" ? "Suggested match" : "No confident AI match"}</strong>
-                <small>{aiSuggestion.reason}</small>
-                <button className="text-action danger" onClick={handleRejectKalveriAI} type="button">Reject suggestion</button>
-              </div>
-            ) : null}
-            <form className="player-form" onSubmit={handleTargetSearch}>
-              <label>
-                <span>Search your library</span>
-                <input
-                  onChange={(event) => setTargetQuery(event.target.value)}
-                  type="search"
-                  value={targetQuery}
-                />
-              </label>
-              <label>
-                <span>Target type</span>
-                <select onChange={(event) => setTargetType(event.target.value)} value={targetType}>
-                  <option value="">Any</option>
-                  <option value="movie">Movie</option>
-                  <option value="show">Show</option>
-                  <option value="episode">Episode</option>
-                </select>
-              </label>
-              <button className="secondary-action" type="submit">Search library</button>
-            </form>
-            <div className="target-list">
-              {targets.map((target) => (
-                <button
-                  aria-label={`${target.title} ${target.subtitle}${target.meta ? ` ${target.meta}` : ""}`}
-                  className={selectedTarget?.type === target.type && selectedTarget?.id === target.id ? "target-row active" : "target-row"}
-                  key={`${target.type}-${target.id}`}
-                  onClick={() => setSelectedTarget(target)}
-                  type="button"
-                >
-                  <strong>{target.title}</strong>
-                  <small>{target.subtitle}{target.meta ? ` ${target.meta}` : ""}</small>
-                </button>
-              ))}
-              {!targets.length ? <div className="empty-strip compact">Search to find a matching library item</div> : null}
-            </div>
-            <form className="player-form" onSubmit={handleLinkItem}>
-              <label className="check-row">
-                <input
-                  checked={confirmLink}
-                  onChange={(event) => setConfirmLink(event.target.checked)}
-                  required
-                  type="checkbox"
-                />
-                <span>I confirm this source item matches the selected library item.</span>
-              </label>
-              <button className="primary-action" disabled={!selectedTarget || !confirmLink || busy === "Linking"} type="submit">
-                Link item
-              </button>
-            </form>
-          </section>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function FocusSection({
   activeSection,
   activity,
@@ -2287,6 +1579,7 @@ function FocusSection({
   globalQuery,
   onOpen,
   onPlayerRefresh,
+  onSelectSection,
   onSessionExpired,
   player,
   stats,
@@ -2344,6 +1637,7 @@ function FocusSection({
     return (
       <PlayerSection
         apiClient={apiClient}
+        onOpenSettings={() => onSelectSection("settings")}
         onRefreshDashboard={onPlayerRefresh}
         onSessionExpired={onSessionExpired}
         player={player}
@@ -2362,13 +1656,11 @@ function FocusSection({
 
   if (activeSection === "settings") {
     return (
-      <div className="focus-block quiet-note">
-        <CalendarDots size={34} weight="duotone" />
-        <h2>Private by default</h2>
-        <p>
-          Raw exports, generated JSON, SQLite, and poster assets are ignored locally so the sensitive archive is not accidentally committed.
-        </p>
-      </div>
+      <SettingsSection
+        apiClient={apiClient}
+        onOpenPlayer={() => onSelectSection("player")}
+        onSessionExpired={onSessionExpired}
+      />
     );
   }
 
@@ -2388,6 +1680,7 @@ export function App() {
   const [detailError, setDetailError] = useState("");
   const [detailActionError, setDetailActionError] = useState("");
   const [detailActionPending, setDetailActionPending] = useState(false);
+  const [detailPlayback, setDetailPlayback] = useState(null);
   const [readAlerts, setReadAlerts] = useState(() => new Set());
   const [loadState, setLoadState] = useState("loading");
   const [authError, setAuthError] = useState("");
@@ -2475,6 +1768,7 @@ export function App() {
     setSelectedDetail(null);
     setDetailError("");
     setDetailActionError("");
+    setDetailPlayback(null);
 
     if (!path) {
       setDetailLoading(false);
@@ -2663,6 +1957,33 @@ export function App() {
     });
   }
 
+  async function handleToggleWatchlist(detail, enabled) {
+    await runDetailAction(async () => {
+      await apiRequest(`${mediaBasePath(detail)}/watchlist`, { method: enabled ? "POST" : "DELETE" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
+  async function handlePlayDetail(detail) {
+    if (!detail?.provider?.playableItemId) return;
+
+    await runDetailAction(async () => {
+      const payload = await apiRequest(`/api/v1/player/items/${detail.provider.playableItemId}/play`, { method: "POST" });
+      setDetailPlayback(payload);
+    });
+  }
+
+  async function handleMarkSeason(detail, season, watched) {
+    if (!detail?.showId || season === null || season === undefined) return;
+
+    await runDetailAction(async () => {
+      await apiRequest(`/api/v1/library/shows/${detail.showId}/seasons/${season}/watch`, { method: watched ? "POST" : "DELETE" });
+      await refreshMediaDetail(detail);
+      await refreshDashboard();
+    });
+  }
+
   async function markAllRead() {
     setReadAlerts(new Set(alerts.map((alert) => alert.id)));
     setDashboard((current) => ({
@@ -2730,6 +2051,7 @@ export function App() {
             {query.trim().length >= 2 && activeSection === "home" ? (
               <GlobalSearchPanel
                 apiClient={apiRequest}
+                onLibraryChanged={refreshDashboard}
                 onOpen={openItem}
                 onSessionExpired={expireSession}
                 query={query}
@@ -2759,6 +2081,7 @@ export function App() {
                 globalQuery={query}
                 onOpen={openItem}
                 onPlayerRefresh={refreshDashboard}
+                onSelectSection={setActiveSection}
                 onSessionExpired={expireSession}
                 player={dashboard.player}
                 stats={stats}
@@ -2798,13 +2121,19 @@ export function App() {
           setSelectedDetail(null);
           setDetailError("");
           setDetailActionError("");
+          setDetailPlayback(null);
         }}
         onDeleteNote={handleDeleteNote}
         onMarkUnwatched={handleMarkUnwatched}
         onMarkWatched={handleMarkWatched}
+        onMarkSeasonUnwatched={(detail, season) => handleMarkSeason(detail, season, false)}
+        onMarkSeasonWatched={(detail, season) => handleMarkSeason(detail, season, true)}
         onOpenEpisode={openItem}
+        onPlay={handlePlayDetail}
         onSaveNote={handleSaveNote}
         onSaveRating={handleSaveRating}
+        onToggleWatchlist={handleToggleWatchlist}
+        playback={detailPlayback}
       />
     </div>
   );

@@ -385,6 +385,30 @@ class MediaMetadataService
     }
 
     /**
+     * @param  array<string, mixed>  $details
+     */
+    public function applyDiscoveredMovie(Movie $movie, array $details): void
+    {
+        $this->applyMovieDetails($movie, $details, [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'discovery',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $details
+     */
+    public function applyDiscoveredShow(Show $show, array $details): void
+    {
+        $this->applyShowDetails($show, $details, [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'discovery',
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $options
      * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
@@ -489,7 +513,6 @@ class MediaMetadataService
     }
 
     /**
-     * @param  mixed  $results
      * @return array<string, mixed>|null
      */
     private function bestSearchResult(string $title, mixed $results, string $titleKey): ?array
@@ -543,7 +566,6 @@ class MediaMetadataService
     }
 
     /**
-     * @param  mixed  $genres
      * @return list<array{id:int|null,name:string}>
      */
     private function genres(mixed $genres): array
@@ -666,7 +688,7 @@ class MediaMetadataService
             $query
                 ->whereNull('tmdb_id')
                 ->orWhereNull('metadata_refreshed_at');
-            });
+        });
     }
 
     /**

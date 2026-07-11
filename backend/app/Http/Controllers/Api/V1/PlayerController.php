@@ -25,7 +25,7 @@ class PlayerController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'provider_type' => ['required', 'string', Rule::in(['manual', 'plex', 'jellyfin', 'emby', 'smb', 'nas', 'local'])],
+            'provider_type' => ['required', 'string', Rule::in(['manual', 'xtream', 'm3u', 'xmltv', 'plex', 'jellyfin', 'emby', 'smb', 'nas', 'local'])],
             'legal_confirmed' => ['accepted'],
         ]);
 
@@ -53,7 +53,7 @@ class PlayerController extends Controller
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'kind' => ['required', 'string', Rule::in(['movie', 'show', 'episode'])],
+            'kind' => ['required', 'string', Rule::in(['movie', 'show', 'episode', 'live'])],
             'stream_url' => ['required', 'url', 'max:2048'],
             'external_id' => ['nullable', 'string', 'max:255'],
         ]);
@@ -77,6 +77,9 @@ class PlayerController extends Controller
             'source_id' => ['nullable', 'integer'],
             'status' => ['nullable', 'string', Rule::in(['available', 'unavailable'])],
             'linked' => ['nullable', 'boolean'],
+            'kind' => ['nullable', 'string', 'max:100'],
+            'category' => ['nullable', 'string', 'max:255'],
+            'match_status' => ['nullable', 'string', Rule::in(['linked', 'suggested', 'needs_review', 'ignored'])],
         ]);
 
         return response()->json([
@@ -94,6 +97,27 @@ class PlayerController extends Controller
         return response()->json([
             'targets' => $player->linkTargetsFor($request->user(), $data),
         ]);
+    }
+
+    public function catalog(Request $request, PlaybackLibraryService $player): JsonResponse
+    {
+        $data = $request->validate([
+            'view' => ['nullable', 'string', Rule::in(['home', 'movies', 'shows', 'live', 'guide', 'search'])],
+            'query' => ['nullable', 'string', 'max:120'],
+            'category' => ['nullable', 'string', 'max:255'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:60'],
+        ]);
+
+        return response()->json($player->catalogFor($request->user(), $data));
+    }
+
+    public function favorite(Request $request, PlaybackSourceItem $item, PlaybackLibraryService $player): JsonResponse
+    {
+        $data = $request->validate(['favorite' => ['required', 'boolean']]);
+        $item = $player->setFavorite($request->user(), $item, (bool) $data['favorite']);
+
+        return response()->json(['item' => ['id' => $item->id, 'favorite' => (bool) $item->favorite]]);
     }
 
     public function play(Request $request, PlaybackSourceItem $item, PlaybackLibraryService $player): JsonResponse

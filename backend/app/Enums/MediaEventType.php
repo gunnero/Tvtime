@@ -7,6 +7,10 @@ enum MediaEventType: string
     case MovieImported = 'movie.imported';
     case ShowImported = 'show.imported';
     case EpisodeImported = 'episode.imported';
+    case MovieAdded = 'movie.added';
+    case ShowAdded = 'show.added';
+    case WatchlistAdded = 'watchlist.added';
+    case WatchlistRemoved = 'watchlist.removed';
     case MovieWatched = 'movie.watched';
     case EpisodeWatched = 'episode.watched';
     case MovieUnwatched = 'movie.unwatched';
@@ -18,6 +22,11 @@ enum MediaEventType: string
     case NoteUpdated = 'note.updated';
     case NoteDeleted = 'note.deleted';
     case ProviderCreated = 'provider.created';
+    case ProviderUpdated = 'provider.updated';
+    case ProviderTested = 'provider.tested';
+    case ProviderRefreshStarted = 'provider.refresh.started';
+    case ProviderRefreshCompleted = 'provider.refresh.completed';
+    case ProviderRefreshFailed = 'provider.refresh.failed';
     case ProviderDisabled = 'provider.disabled';
     case ProviderDeleted = 'provider.deleted';
     case ProviderItemCreated = 'provider.item.created';

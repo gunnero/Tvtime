@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\MediaEventSource;
+use App\Enums\MediaEventType;
 use App\Http\Controllers\Controller;
 use App\Models\Episode;
 use App\Models\Movie;
 use App\Models\Note;
 use App\Models\Show;
-use App\Services\MediaDetailService;
 use App\Services\MediaAnnotationService;
+use App\Services\MediaDetailService;
+use App\Services\MediaEventService;
 use App\Services\PlaybackLibraryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -89,6 +92,52 @@ class ManualLibraryController extends Controller
         $library->untrackManualEpisode($request->user(), $episode);
 
         return response()->json(null, 204);
+    }
+
+    public function watchlistMovie(Request $request, Movie $movie, MediaEventService $events): JsonResponse
+    {
+        $movie = Movie::forUser($request->user())->findOrFail($movie->id);
+        $movie->forceFill(['is_to_watch' => true])->save();
+        $events->record($request->user(), MediaEventType::WatchlistAdded, $movie, ['title' => $movie->title, 'media_type' => 'movie'], MediaEventSource::Manual);
+
+        return response()->json(['watchlist' => true]);
+    }
+
+    public function removeMovieWatchlist(Request $request, Movie $movie, MediaEventService $events): JsonResponse
+    {
+        $movie = Movie::forUser($request->user())->findOrFail($movie->id);
+        $movie->forceFill(['is_to_watch' => false])->save();
+        $events->record($request->user(), MediaEventType::WatchlistRemoved, $movie, ['title' => $movie->title, 'media_type' => 'movie'], MediaEventSource::Manual);
+
+        return response()->json(null, 204);
+    }
+
+    public function watchlistShow(Request $request, Show $show, MediaEventService $events): JsonResponse
+    {
+        $show = Show::forUser($request->user())->findOrFail($show->id);
+        $show->forceFill(['followed' => true])->save();
+        $events->record($request->user(), MediaEventType::WatchlistAdded, $show, ['title' => $show->title, 'media_type' => 'show'], MediaEventSource::Manual);
+
+        return response()->json(['watchlist' => true]);
+    }
+
+    public function removeShowWatchlist(Request $request, Show $show, MediaEventService $events): JsonResponse
+    {
+        $show = Show::forUser($request->user())->findOrFail($show->id);
+        $show->forceFill(['followed' => false])->save();
+        $events->record($request->user(), MediaEventType::WatchlistRemoved, $show, ['title' => $show->title, 'media_type' => 'show'], MediaEventSource::Manual);
+
+        return response()->json(null, 204);
+    }
+
+    public function watchSeason(Request $request, Show $show, int $season, PlaybackLibraryService $library): JsonResponse
+    {
+        return response()->json($library->manuallyTrackSeason($request->user(), $show, $season));
+    }
+
+    public function unwatchSeason(Request $request, Show $show, int $season, PlaybackLibraryService $library): JsonResponse
+    {
+        return response()->json($library->untrackManualSeason($request->user(), $show, $season));
     }
 
     public function rateMovie(Request $request, Movie $movie, MediaAnnotationService $annotations): JsonResponse

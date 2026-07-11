@@ -9,6 +9,7 @@ enum MediaEventSource: string
     case Import = 'import';
     case Provider = 'provider';
     case Metadata = 'metadata';
+    case Discovery = 'discovery';
     case AI = 'ai';
     case System = 'system';
 }

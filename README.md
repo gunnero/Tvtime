@@ -197,6 +197,26 @@ The React dashboard now has user-facing canonical library browsers:
 
 These screens call user-scoped `/api/v1/library/*` endpoints and never use provider/source item lists for normal library search. Provider URLs, stream URLs, playlist URLs, credentials, API keys, secrets, and raw provider settings remain excluded from dashboard, library, search, and history payloads.
 
+## Discovery And Private Provider Catalog
+
+Global search now has two explicit modes:
+
+- **My Library** searches the authenticated user's canonical movies, shows, and episodes.
+- **Discover** queries TMDB through Laravel and can add a movie/show to the canonical library or watchlist without requiring a provider.
+
+Provider configuration now lives under **Settings > Providers**. Users may configure an authorized Xtream-compatible API, M3U playlist, XMLTV source, or manual source. Credentials and locators are encrypted; provider summaries expose configuration/status booleans and counts only.
+
+The Player is a catalog browser, not a provider setup form. With a provider it offers Home, Movies, Shows, Live TV, TV Guide, and Search views. Without a provider it links to Provider Settings while all manual library features remain available. Catalog list responses never contain raw provider or playback URLs; only the owner-only play endpoint returns the URL required for the active player session.
+
+Refresh one provider catalog with:
+
+```bash
+cd backend
+php artisan mediahub:refresh-provider {provider_id}
+```
+
+See `docs/mediahub/DISCOVERY_AND_PROVIDER_PLAYER_SPEC.md`.
+
 ## Backend Setup
 
 ```bash
@@ -234,6 +254,12 @@ The React app expects the backend on the same origin. Private routes use Laravel
 - `GET /api/v1/library/movies/{movie}`
 - `GET /api/v1/library/shows/{show}`
 - `GET /api/v1/library/episodes/{episode}`
+- `POST /api/v1/library/movies/{movie}/watchlist`
+- `DELETE /api/v1/library/movies/{movie}/watchlist`
+- `POST /api/v1/library/shows/{show}/watchlist`
+- `DELETE /api/v1/library/shows/{show}/watchlist`
+- `POST /api/v1/library/shows/{show}/seasons/{season}/watch`
+- `DELETE /api/v1/library/shows/{show}/seasons/{season}/watch`
 - `POST /api/v1/library/movies/{movie}/watch`
 - `POST /api/v1/library/episodes/{episode}/watch`
 - `DELETE /api/v1/library/movies/{movie}/watch`
@@ -249,12 +275,23 @@ The React app expects the backend on the same origin. Private routes use Laravel
 - `POST /api/v1/library/episodes/{episode}/notes`
 - `PATCH /api/v1/library/notes/{note}`
 - `DELETE /api/v1/library/notes/{note}`
+- `GET /api/v1/discover/search`
+- `POST /api/v1/discover/movies/{tmdbId}/add`
+- `POST /api/v1/discover/shows/{tmdbId}/add`
+- `GET /api/v1/providers`
+- `POST /api/v1/providers/test`
+- `POST /api/v1/providers`
+- `PATCH /api/v1/providers/{provider}`
+- `POST /api/v1/providers/{provider}/refresh`
+- `DELETE /api/v1/providers/{provider}`
 - `GET /api/v1/player/sources`
 - `POST /api/v1/player/sources`
 - `PATCH /api/v1/player/sources/{source}`
 - `DELETE /api/v1/player/sources/{source}`
 - `GET /api/v1/player/items`
+- `GET /api/v1/player/catalog`
 - `POST /api/v1/player/sources/{source}/items`
+- `PATCH /api/v1/player/items/{item}/favorite`
 - `GET /api/v1/player/link-targets`
 - `POST /api/v1/player/items/{item}/play`
 - `POST /api/v1/player/items/{item}/link`
@@ -265,7 +302,7 @@ Filament admin is available at `/admin` for active `owner` and `admin` users.
 
 The React detail modal uses the library endpoints for user-owned movies, shows, and episodes. Users can rate 1-10, clear ratings, save/delete private notes, inspect a short entertainment-diary snippet, and add/remove manual watch rows for movies and episodes. The remove action only deletes manual watch rows; imported/provider watch history remains permanent.
 
-The React Player tab lets a user attach their own private source, add manual source items, search/filter source items, see linked and unlinked groups, link/unlink items to same-user canonical library records with explicit confirmation, start HTML5/HLS playback, save progress, and mark playback complete. Source/provider URLs are not shown in dashboard or list payloads; playback URLs are requested only from the owner-only play endpoint.
+The React Settings screen manages user-owned providers and manual source items. The Player browses the resulting private catalog, separates linked/suggested/review items, supports live favorites and EPG-aware views, links/unlinks same-user canonical media with explicit confirmation, starts HTML5/HLS playback, and saves progress/completion. Source/provider URLs are not shown in dashboard or list payloads; playback URLs are requested only from the owner-only play endpoint.
 
 ## Product UX
 

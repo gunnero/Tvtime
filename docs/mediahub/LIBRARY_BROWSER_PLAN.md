@@ -19,6 +19,7 @@ Make the canonical MediaHub library visible and usable without changing the prov
 - Shows -> Show Library -> Show Detail -> Season List -> Episode List -> Episode Detail
 - History -> Watched movies/episodes timeline/list
 - Search -> Movies, Shows, Episodes
+- Search -> Discover -> TMDB Movie/Show Preview -> Add to My Library
 
 ## Screens Needed
 
@@ -41,7 +42,12 @@ Make the canonical MediaHub library visible and usable without changing the prov
 6. Global Search
    - Search across movies, shows, and episodes.
    - Group results by type.
-   - Provider items stay out of global search unless deliberately separated later.
+   - Keep explicit tabs for My Library and Discover.
+   - Provider items stay out of both modes and remain inside Player.
+7. Discovery Preview
+   - Public TMDB metadata before adding.
+   - Add to Library, Add to Watchlist, and Mark Watched for movies.
+   - Already-added results open the current user's canonical detail.
 
 ## API Gaps
 
@@ -51,6 +57,9 @@ Add authenticated, user-scoped endpoints under `/api/v1`:
 - `GET /library/shows`
 - `GET /library/history`
 - `GET /library/search`
+- `GET /discover/search`
+- `POST /discover/movies/{tmdbId}/add`
+- `POST /discover/shows/{tmdbId}/add`
 
 Harden existing endpoints:
 
@@ -63,6 +72,7 @@ Harden existing endpoints:
 - Replace shelf-only Shows view with a library browser backed by `/api/v1/library/shows`.
 - Add a History section backed by `/api/v1/library/history`.
 - Upgrade global search to call `/api/v1/library/search` and show grouped results.
+- Add a separate Discover tab backed by `/api/v1/discover/search` and a preview-before-add flow.
 - Extend the detail modal to show seasons/episodes when the selected item is a show.
 
 ## Data Safety Rules
@@ -70,7 +80,9 @@ Harden existing endpoints:
 - Every backend query must scope by `user_id`.
 - Payloads must not include `stream_url`, `playbackUrl`, `provider_url`, `playlist_url`, credentials, passwords, API keys, tokens, or secrets.
 - Provider status can be exposed only as booleans/counts.
-- Provider items do not appear in global search in this sprint.
+- Provider items do not appear in My Library or Discover search.
+- Discovery duplicate checks and add actions are scoped to the authenticated user.
+- Discovery uses public TMDB metadata only and must fail safely when TMDB is disabled.
 - The browser must use canonical media records, not a shared stream catalog.
 
 ## Acceptance Criteria
@@ -81,6 +93,7 @@ Harden existing endpoints:
 - Authenticated user can open an episode detail from the season browser.
 - Authenticated user can browse paginated watch history without loading all rows at once.
 - Global search returns movies, shows, and episodes grouped by type.
+- Discover returns movies/shows separately, previews before add, and prevents same-user duplicates.
 - Cross-user access returns 404 or empty results.
 - Payload sensitive-key scans pass.
 - Existing manual watch, rating, note, provider/player flows continue to work.

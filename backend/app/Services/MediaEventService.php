@@ -4,7 +4,13 @@ namespace App\Services;
 
 use App\Enums\MediaEventSource;
 use App\Enums\MediaEventType;
+use App\Models\Episode;
 use App\Models\MediaEvent;
+use App\Models\Movie;
+use App\Models\PlaybackSession;
+use App\Models\PlaybackSource;
+use App\Models\PlaybackSourceItem;
+use App\Models\Show;
 use App\Models\User;
 use App\Services\Concerns\SanitizesMetadata;
 use Carbon\CarbonImmutable;
@@ -108,6 +114,7 @@ class MediaEventService
             ->when(filled($filters['event_type'] ?? null), fn (Builder $query) => $query->where('event_type', $filters['event_type']))
             ->when(filled($filters['source'] ?? null), fn (Builder $query) => $query->where('source', $filters['source']))
             ->when(filled($filters['subject_type'] ?? null), fn (Builder $query) => $query->where('subject_type', $this->subjectType((string) $filters['subject_type'])))
+            ->when(filled($filters['subject_id'] ?? null), fn (Builder $query) => $query->where('subject_id', (int) $filters['subject_id']))
             ->when(filled($filters['date_from'] ?? null), fn (Builder $query) => $query->where('occurred_at', '>=', CarbonImmutable::parse((string) $filters['date_from'])->startOfDay()))
             ->when(filled($filters['date_to'] ?? null), fn (Builder $query) => $query->where('occurred_at', '<=', CarbonImmutable::parse((string) $filters['date_to'])->endOfDay()));
     }
@@ -115,12 +122,12 @@ class MediaEventService
     private function subjectType(string $value): string
     {
         return match ($value) {
-            'movie' => \App\Models\Movie::class,
-            'show' => \App\Models\Show::class,
-            'episode' => \App\Models\Episode::class,
-            'provider', 'playback_source' => \App\Models\PlaybackSource::class,
-            'provider_item', 'playback_source_item' => \App\Models\PlaybackSourceItem::class,
-            'playback_session' => \App\Models\PlaybackSession::class,
+            'movie' => Movie::class,
+            'show' => Show::class,
+            'episode' => Episode::class,
+            'provider', 'playback_source' => PlaybackSource::class,
+            'provider_item', 'playback_source_item' => PlaybackSourceItem::class,
+            'playback_session' => PlaybackSession::class,
             default => $value,
         };
     }
@@ -159,6 +166,10 @@ class MediaEventService
             MediaEventType::EpisodeWatched->value => 'Finished '.$this->fallbackTitle($title, 'episode'),
             MediaEventType::MovieUnwatched->value => 'Marked '.$this->fallbackTitle($title, 'movie').' unwatched',
             MediaEventType::EpisodeUnwatched->value => 'Marked '.$this->fallbackTitle($title, 'episode').' unwatched',
+            MediaEventType::MovieAdded->value => 'Added '.$this->fallbackTitle($title, 'movie').' to the library',
+            MediaEventType::ShowAdded->value => 'Added '.$this->fallbackTitle($title, 'show').' to the library',
+            MediaEventType::WatchlistAdded->value => 'Added '.$this->fallbackTitle($title, 'item').' to the watchlist',
+            MediaEventType::WatchlistRemoved->value => 'Removed '.$this->fallbackTitle($title, 'item').' from the watchlist',
             MediaEventType::RatingCreated->value,
             MediaEventType::RatingUpdated->value => 'Rated '.$this->fallbackTitle($title, 'item').($rating ? ' '.$rating.'/10' : ''),
             MediaEventType::RatingDeleted->value => 'Cleared rating',
@@ -166,6 +177,11 @@ class MediaEventService
             MediaEventType::NoteUpdated->value => 'Updated private note',
             MediaEventType::NoteDeleted->value => 'Deleted private note',
             MediaEventType::ProviderCreated->value => 'Attached provider '.$this->fallbackTitle($title, 'source'),
+            MediaEventType::ProviderUpdated->value => 'Updated provider '.$this->fallbackTitle($title, 'source'),
+            MediaEventType::ProviderTested->value => 'Tested provider '.$this->fallbackTitle($title, 'source'),
+            MediaEventType::ProviderRefreshStarted->value => 'Started provider refresh',
+            MediaEventType::ProviderRefreshCompleted->value => 'Refreshed provider catalog',
+            MediaEventType::ProviderRefreshFailed->value => 'Provider refresh failed',
             MediaEventType::ProviderDisabled->value => 'Disabled provider '.$this->fallbackTitle($title, 'source'),
             MediaEventType::ProviderDeleted->value => 'Deleted provider '.$this->fallbackTitle($title, 'source'),
             MediaEventType::ProviderItemCreated->value => 'Added source item '.$this->fallbackTitle($title, 'item'),

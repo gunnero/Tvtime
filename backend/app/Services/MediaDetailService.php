@@ -20,6 +20,7 @@ class MediaDetailService
 {
     public function __construct(
         private readonly MediaMetadataService $metadata,
+        private readonly MediaEventService $events,
     ) {}
 
     /**
@@ -47,11 +48,14 @@ class MediaDetailService
             'status' => $movie->is_to_watch ? 'watchlist' : ($watches->isNotEmpty() ? 'watched' : 'library'),
             'watched' => $watches->isNotEmpty(),
             'watchedCount' => $watches->count(),
+            'watchlist' => (bool) $movie->is_to_watch,
+            'overview' => $movie->overview,
             'metadata' => $this->metadataFields($movie, $movie->release_date),
             'rating' => $this->rating($user, 'movie', $movie->id),
             'notes' => $this->notes($user, 'movie', $movie->id),
             'watchHistory' => $watches->map(fn (MovieWatch $watch): array => $this->watchItem($watch))->values()->all(),
             'provider' => $this->providerStatus($user, 'movie', $movie->id),
+            'timeline' => $this->events->timeline($user, ['subject_type' => 'movie', 'subject_id' => $movie->id, 'limit' => 8]),
         ];
     }
 
@@ -83,13 +87,17 @@ class MediaDetailService
             'status' => $show->followed ? 'followed' : ($watches->isNotEmpty() ? 'watched' : 'library'),
             'watched' => $watches->isNotEmpty() || $show->seen_episodes > 0,
             'watchedCount' => $watches->count(),
+            'watchlist' => (bool) $show->followed,
+            'overview' => $show->overview,
             'metadata' => $this->metadataFields($show, $show->first_air_date),
             'rating' => $this->rating($user, 'show', $show->id),
             'notes' => $this->notes($user, 'show', $show->id),
             'watchHistory' => $watches->map(fn (EpisodeWatch $watch): array => $this->episodeWatchItem($watch))->values()->all(),
             'provider' => $this->showProviderStatus($user, $show),
             'latestEpisode' => $watches->first()?->episode ? $this->episodeRow($user, $watches->first()->episode) : null,
+            'nextUnwatchedEpisode' => $this->nextUnwatchedEpisode($user, $show),
             'seasons' => $this->seasons($user, $show),
+            'timeline' => $this->events->timeline($user, ['subject_type' => 'show', 'subject_id' => $show->id, 'limit' => 8]),
         ];
     }
 
@@ -120,11 +128,14 @@ class MediaDetailService
             'status' => $watches->isNotEmpty() ? 'watched' : 'library',
             'watched' => $watches->isNotEmpty(),
             'watchedCount' => $watches->count(),
+            'watchlist' => false,
+            'overview' => $episode->overview,
             'metadata' => $this->metadataFields($episode, $episode->air_date),
             'rating' => $this->rating($user, 'episode', $episode->id),
             'notes' => $this->notes($user, 'episode', $episode->id),
             'watchHistory' => $watches->map(fn (EpisodeWatch $watch): array => $this->episodeWatchItem($watch))->values()->all(),
             'provider' => $this->providerStatus($user, 'episode', $episode->id),
+            'timeline' => $this->events->timeline($user, ['subject_type' => 'episode', 'subject_id' => $episode->id, 'limit' => 8]),
         ];
     }
 
@@ -215,6 +226,7 @@ class MediaDetailService
                     'seasonNumber' => $seasonNumber,
                     'title' => $seasonNumber > 0 ? 'Season '.$seasonNumber : 'Specials',
                     'episodesCount' => count($episodeRows),
+                    'totalEpisodes' => count($episodeRows),
                     'watchedEpisodes' => collect($episodeRows)->where('watched', true)->count(),
                     'episodes' => $episodeRows,
                 ];
@@ -242,11 +254,14 @@ class MediaDetailService
             'code' => $this->episodeCode($episode),
             'title' => $this->episodeTitle($episode),
             'runtime' => (int) $episode->runtime,
+            'airDate' => $episode->air_date?->toDateString(),
+            'poster' => $this->posterFor($episode),
             'watched' => $latestWatch !== null,
             'watchedAt' => $latestWatch?->watched_at?->toIso8601String(),
             'rating' => $this->rating($user, 'episode', $episode->id)['rating'] ?? null,
             'hasNote' => Note::forUser($user)->forMedia('episode', $episode->id)->exists(),
             'providerLinked' => $this->providerStatus($user, 'episode', $episode->id)['linked'],
+            'playableItemId' => $this->providerStatus($user, 'episode', $episode->id)['playableItemId'],
         ];
     }
 
@@ -256,16 +271,19 @@ class MediaDetailService
     private function providerStatus(User $user, string $columnMediaType, int $mediaId): array
     {
         $column = $columnMediaType.'_id';
-        $count = MediaLink::forUser($user)
+        $links = MediaLink::forUser($user)
             ->where($column, $mediaId)
             ->whereHas('sourceItem', fn (Builder $query) => $query
                 ->forUser($user)
-                ->whereHas('source', fn (Builder $sourceQuery) => $sourceQuery->forUser($user)))
-            ->count();
+                ->where('status', 'available')
+                ->whereHas('source', fn (Builder $sourceQuery) => $sourceQuery->forUser($user)->active()))
+            ->with(['sourceItem' => fn ($query) => $query->forUser($user)])
+            ->get();
 
         return [
-            'linked' => $count > 0,
-            'linkedItemsCount' => $count,
+            'linked' => $links->isNotEmpty(),
+            'linkedItemsCount' => $links->count(),
+            'playableItemId' => $links->first(fn (MediaLink $link): bool => filled($link->sourceItem?->stream_url))?->playback_source_item_id,
         ];
     }
 
@@ -275,20 +293,37 @@ class MediaDetailService
     private function showProviderStatus(User $user, Show $show): array
     {
         $episodeIds = Episode::forUser($user)->where('show_id', $show->id)->pluck('id');
-        $count = MediaLink::forUser($user)
+        $links = MediaLink::forUser($user)
             ->where(function (Builder $query) use ($episodeIds, $show): void {
                 $query->where('show_id', $show->id)
                     ->orWhereIn('episode_id', $episodeIds);
             })
             ->whereHas('sourceItem', fn (Builder $query) => $query
                 ->forUser($user)
-                ->whereHas('source', fn (Builder $sourceQuery) => $sourceQuery->forUser($user)))
-            ->count();
+                ->where('status', 'available')
+                ->whereHas('source', fn (Builder $sourceQuery) => $sourceQuery->forUser($user)->active()))
+            ->with(['sourceItem' => fn ($query) => $query->forUser($user)])
+            ->get();
 
         return [
-            'linked' => $count > 0,
-            'linkedItemsCount' => $count,
+            'linked' => $links->isNotEmpty(),
+            'linkedItemsCount' => $links->count(),
+            'playableItemId' => $links->first(fn (MediaLink $link): bool => filled($link->sourceItem?->stream_url))?->playback_source_item_id,
         ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function nextUnwatchedEpisode(User $user, Show $show): ?array
+    {
+        $watchedIds = EpisodeWatch::forUser($user)->where('show_id', $show->id)->pluck('episode_id');
+        $episode = Episode::forUser($user)
+            ->where('show_id', $show->id)
+            ->whereNotIn('id', $watchedIds)
+            ->orderBy('season_number')
+            ->orderBy('episode_number')
+            ->first();
+
+        return $episode ? $this->episodeRow($user, $episode) : null;
     }
 
     private function posterFor(mixed $media, ?string $fallback = ''): string

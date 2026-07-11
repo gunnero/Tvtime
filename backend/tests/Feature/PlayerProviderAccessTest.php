@@ -10,6 +10,7 @@ use App\Models\MovieWatch;
 use App\Models\PlaybackSession;
 use App\Models\PlaybackSource;
 use App\Models\PlaybackSourceItem;
+use App\Models\Show;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -338,7 +339,7 @@ class PlayerProviderAccessTest extends TestCase
     public function test_provider_items_can_link_to_user_owned_episodes(): void
     {
         $user = $this->member();
-        $show = \App\Models\Show::create([
+        $show = Show::create([
             'user_id' => $user->id,
             'title' => 'Own Show',
         ]);

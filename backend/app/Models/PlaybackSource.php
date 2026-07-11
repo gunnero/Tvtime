@@ -17,6 +17,8 @@ class PlaybackSource extends Model
         'metadata',
         'settings',
         'last_synced_at',
+        'sync_status',
+        'last_sync_error',
     ];
 
     protected $hidden = [

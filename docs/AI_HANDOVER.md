@@ -11,7 +11,7 @@ Project name: MediaHub.
 
 Purpose: provider-independent personal media operating system for movies and TV shows. The TV Time archive/importer is one data source, not the product identity.
 
-Current version: frontend `package.json` is `0.0.0`; UI footer says `v1.0.0`; backend includes Laravel foundation, authenticated dashboard, user-owned provider/player layer, Canonical Media Engine sprint 001, Manual Library UI sprint 002, Provider Attach & Playback UI sprint 004, optional TMDB Metadata Foundation sprint 005, Media Event System sprint 006, Product UX sprint 001, and local Sprint 007 Library Browser work. No Sprint 007 commit or deployment has been made yet.
+Current version: frontend `package.json` is `0.0.0`; UI footer says `v1.0.0`. The working tree includes the uncommitted Sprint 009 Kalveri AI matcher naming work and Sprint 010 Discovery, Cinematic Details, Settings Providers, and private Provider Catalog implementation. Sprint 010 has not been committed or deployed.
 
 Completed:
 
@@ -35,6 +35,12 @@ Completed:
 - Optional TMDB metadata foundation: private `.env` config, TMDB client service, additive metadata enrichment service, summary-only Artisan commands, public poster/backdrop use in dashboard/detail payloads, and safe Filament metadata inspection/refresh actions.
 - User-scoped media event system for meaningful activity timeline, future statistics, Kalveri AI memory, recommendations, notifications, auditability, and achievements. Events sanitize forbidden metadata keys and never store stream/provider URLs or credentials.
 - Kalveri AI Media Matcher v1: optional disabled-by-default Kalveri AI client, sanitized provider-item and metadata-review payloads, Player link-modal suggestions, metadata review commands, safe Filament actions, and `ai.match.*` media events. Suggestions require confirmation and never auto-link/apply.
+- Separate My Library and Discover search modes. Discover queries TMDB through Laravel, previews public metadata, and adds same-user canonical movies/shows with duplicate prevention.
+- Cinematic movie/show detail overlays with independently scrolling content, compact tabs, collapsed technical metadata, and a one-season-at-a-time episode browser.
+- Settings information architecture for Profile, Privacy, Library, Providers, Backups, Metadata, and About.
+- Private provider management for Xtream-compatible API, M3U, XMLTV, and manual sources with encrypted settings, safe test responses, catalog refresh, enable/disable, and deletion.
+- Private provider catalog import with encrypted playback/artwork locators, categories, EPG summaries, deterministic link suggestions, inactive-item retention, and summary-only events.
+- Player catalog views for Home, Movies, Shows, Live TV, TV Guide, and Search. Raw locators remain absent from list payloads; only owner play returns `playbackUrl`.
 - Detail APIs for user-owned movies, shows, and episodes plus clear-rating, note update/delete, episode manual watch, and manual unwatch endpoints.
 - Feature tests for canonical watch invariants, ratings/notes, safe backup/restore, provider URL safety, and provider deletion preserving permanent history.
 - Filament admin panel at `/admin`.
@@ -48,7 +54,8 @@ Still planned:
 
 - Review, commit, and deploy Sprint 006 after the full verification gate stays green.
 - Production hardening beyond the current Basic-Auth-protected staging deployment.
-- Review, commit, and deploy Sprint 007 after the full verification gate stays green.
+- Review and commit the current Sprint 009/010 working tree after the full verification gate stays green.
+- Deploy Sprint 010 only after explicit approval.
 - User-facing import upload flow.
 - Background jobs/scheduler for future alert checks.
 - Metadata conflict resolution and manual metadata correction.
@@ -222,8 +229,8 @@ Tables:
 - `movie_watches`: `id`, `user_id`, `movie_id`, `watched_at`, `runtime`, `watch_count`, `source`, timestamps. Indexes: `watched_at`, `user_id/watched_at`, `user_id/movie_id`. FKs: `user_id` cascade delete, `movie_id` null on delete.
 - `ratings`: `id`, `user_id`, `media_type`, `media_id`, `rating`, timestamps. Unique `user_id/media_type/media_id`; indexes `media_type`, `media_id`, `user_id/media_type`. FK `user_id` cascade delete.
 - `notes`: `id`, `user_id`, `media_type`, `media_id`, `body`, timestamps. Indexes `media_type`, `media_id`, `user_id/media_type/media_id`, `user_id/updated_at`. FK `user_id` cascade delete.
-- `playback_sources`: `id`, `user_id`, `name`, `provider_type`, `status`, `metadata`, encrypted `settings`, `last_synced_at`, timestamps. Indexes: `provider_type`, `status`, `last_synced_at`, `user_id/status`, `user_id/provider_type`. FK `user_id` cascade delete.
-- `playback_source_items`: `id`, `user_id`, `playback_source_id`, `external_id`, `kind`, `title`, `status`, encrypted `stream_url`, `stream_url_hash`, `metadata`, `last_seen_at`, timestamps. Unique `user_id/playback_source_id/external_id`; indexes `kind`, `status`, `stream_url_hash`, `user_id/kind`, `user_id/status`. FKs: `user_id` cascade delete, `playback_source_id` cascade delete.
+- `playback_sources`: `id`, `user_id`, `name`, `provider_type`, `status`, `metadata`, encrypted `settings`, `last_synced_at`, `sync_status`, `last_sync_error`, timestamps. Indexes include provider/status/sync state and same-user provider/status. FK `user_id` cascade delete.
+- `playback_source_items`: `id`, `user_id`, `playback_source_id`, `external_id`, `kind`, `title`, `status`, encrypted `stream_url`, `stream_url_hash`, `metadata`, `last_seen_at`, `category`, encrypted `poster_url`, `duration_seconds`, `release_year`, `match_status`, `favorite`, `catalog_synced_at`, timestamps. Unique `user_id/playback_source_id/external_id`; indexes cover kind/status/category/match/favorite/sync and same-user catalog filters. FKs: `user_id` cascade delete, `playback_source_id` cascade delete.
 - `media_links`: `id`, `user_id`, `playback_source_item_id`, `movie_id`, `show_id`, `episode_id`, `linked_at`, timestamps. Unique `user_id/playback_source_item_id`; indexes `user_id/movie_id`, `user_id/show_id`, `user_id/episode_id`. Provider item cascades; canonical media nulls on delete.
 - `playback_sessions`: `id`, `user_id`, `playback_source_id`, `playback_source_item_id`, `media_link_id`, `status`, `started_at`, `ended_at`, `last_position_seconds`, `duration_seconds`, timestamps. Indexes `status`, `started_at`, `ended_at`, `user_id/status`, `user_id/playback_source_item_id`.
 - `playback_progress`: `id`, `user_id`, `playback_session_id`, `playback_source_item_id`, `movie_id`, `episode_id`, `position_seconds`, `duration_seconds`, `completed`, timestamps. Unique `user_id/playback_source_item_id`; indexes `completed`, `user_id/completed`.
@@ -247,7 +254,7 @@ Every media/library/player/annotation table is scoped by `user_id`.
 - `Rating`: casts rating int; belongs to user; scopes `forUser`, `forMedia`.
 - `Note`: belongs to user; scopes `forUser`, `forMedia`.
 - `PlaybackSource`: encrypted settings, metadata array, belongs to user, has source items/sessions, scopes `forUser`, `active`.
-- `PlaybackSourceItem`: encrypted hidden stream URL, metadata array, belongs to user/source, has media link/sessions/progress, scopes `forUser`, `available`.
+- `PlaybackSourceItem`: encrypted hidden stream/artwork URLs, metadata array, typed catalog fields, belongs to user/source, has media link/sessions/progress, scopes `forUser`, `available`.
 - `MediaLink`: belongs to user/source item and optional same-user canonical movie/show/episode, scope `forUser`.
 - `PlaybackSession`: belongs to user/source/source item/media link, has progress, scope `forUser`.
 - `PlaybackProgress`: belongs to user/session/source item/movie/episode, scope `forUser`.
@@ -267,6 +274,9 @@ Every media/library/player/annotation table is scoped by `user_id`.
 - `LibraryBrowserController@shows`: `GET /api/v1/library/shows`; returns paginated same-user show cards with search/status/sort filters.
 - `LibraryBrowserController@history`: `GET /api/v1/library/history`; returns paginated same-user movie/episode watch history.
 - `LibraryBrowserController@search`: `GET /api/v1/library/search`; returns grouped same-user canonical movie/show/episode search results.
+- `DiscoveryController@search`: `GET /api/v1/discover/search`; returns rate-limited TMDB movie/show discovery results with same-user existing-library flags and safe failure states.
+- `DiscoveryController@addMovie/addShow`: `POST /api/v1/discover/{movies|shows}/{tmdbId}/add`; creates/reuses same-user canonical media and applies library/watchlist/watched actions.
+- `ProviderController@index/store/update/test/refresh/destroy`: manages same-user encrypted provider configuration, safe status-only connection tests, catalog refresh, and provider deletion without returning raw settings.
 - `ManualLibraryController@showMovie/showShow/showEpisode`: `GET /api/v1/library/{media}/{id}`; returns a safe user-owned detail payload with status, rating, private notes, watch history, provider link status, and show season/episode groups.
 - `ManualLibraryController@watchMovie/watchEpisode`: `POST /api/v1/library/{media}/{id}/watch`; creates or updates one manual watch row for a user-owned movie or episode.
 - `ManualLibraryController@unwatchMovie/unwatchEpisode`: `DELETE /api/v1/library/{media}/{id}/watch`; removes only manual watch rows for a user-owned movie or episode, preserving imported/provider history.
@@ -279,6 +289,8 @@ Every media/library/player/annotation table is scoped by `user_id`.
 - `PlayerController@updateSource`: `PATCH /api/v1/player/sources/{source}`; enables or disables an owned provider/source.
 - `PlayerController@destroySource`: `DELETE /api/v1/player/sources/{source}`; deletes one owned provider without deleting canonical watch history.
 - `PlayerController@items`: `GET /api/v1/player/items`; lists/searches only owned source items without raw URLs.
+- `PlayerController@catalog`: `GET /api/v1/player/catalog`; returns safe same-user Home/Movies/Shows/Live/Guide/Search catalog views.
+- `PlayerController@favorite`: `PATCH /api/v1/player/items/{item}/favorite`; changes a same-user live/catalog favorite flag.
 - `PlayerController@storeItem`: `POST /api/v1/player/sources/{source}/items`; creates a manual owned source item with encrypted stream URL.
 - `PlayerController@linkTargets`: `GET /api/v1/player/link-targets`; searches same-user canonical movies, shows, and episodes for manual linking.
 - `PlayerController@play`: `POST /api/v1/player/items/{item}/play`; starts playback for an owned provider item only.
@@ -296,13 +308,17 @@ Every media/library/player/annotation table is scoped by `user_id`.
 - `DashboardPayloadService`: builds the React-compatible payload from Laravel tables, preferring safe TMDB poster/backdrop image URLs when enriched, adding a safe timeline object, and never exposing provider/stream URLs.
 - `LibraryBrowserService`: builds paginated canonical movie, show, watch-history, and grouped search payloads for the React browser without exposing provider/source URLs.
 - `MediaDetailService`: builds safe per-item detail payloads for the React modal with public metadata fields and without stream URLs or provider secrets.
+- `DiscoveryService`: queries optional TMDB discovery, calculates same-user library state, and creates/reuses canonical movies/shows with sanitized events.
+- `ProviderService`: manages encrypted provider settings and exposes only safe provider summaries and connection-test results.
+- `ProviderConnectionService`: validates and fetches authorized Xtream/M3U/XMLTV catalogs with timeout/retry and safe error codes.
+- `ProviderCatalogService`: imports private provider catalog metadata, encrypts locators, deactivates missing source items without deleting links, and creates deterministic same-user suggestions.
 - `TMDBClientService`: optional TMDB API client with disabled mode, timeouts, response caching, and no API key logging.
 - `KalveriAIClient`: optional Kalveri AI JSON client with disabled mode, timeout/failure fallback, and no API key logging.
 - `SafeAIMatchingPayloadService`: recursively strips forbidden fields before Kalveri AI requests and before storing suggestions.
 - `KalveriAIMediaMatcherService`: runs local provider-item matching, calls Kalveri AI only as fallback, stores suggestions, records `ai.match.*` events, and applies review matches only after explicit confirmation.
 - `MediaMetadataService`: enriches movies, shows, episodes, and user libraries additively with public metadata while preserving user/import-owned fields.
 - `MediaEventService`: records sanitized user-scoped activity events, strips forbidden metadata keys, exposes recent/timeline payload helpers, and fails softly so event recording never breaks the main user action.
-- `PlaybackLibraryService`: enforces user-owned provider/player access, media links, playback sessions, progress, manual tracking, and provider deletion rules.
+- `PlaybackLibraryService`: enforces user-owned provider/player access, safe catalog views, favorites, media links, playback sessions, progress, manual/season tracking, and provider deletion rules.
 - `MediaAnnotationService`: enforces same-user canonical media ownership for ratings and notes, records analytics, and writes audit logs.
 - `AlertService`: marks alerts read/read-all with user ownership checks and analytics.
 - `AnalyticsService`: records sanitized analytics events.

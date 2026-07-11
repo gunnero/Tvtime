@@ -188,6 +188,35 @@ The dashboard payload must never expose:
 
 The authenticated play endpoint is the only current endpoint that returns a playback URL, and only after same-user provider item ownership checks pass.
 
+## Discovery Boundary
+
+Discovery search is not a second library and does not create global canonical records. TMDB discovery results are transient public metadata until the authenticated user explicitly adds one.
+
+- `already_in_library` is calculated inside the current user's canonical scope.
+- Adding a discovered TMDB ID creates or reuses one movie/show for that user.
+- Watchlist and watched actions attach to that canonical record.
+- Discovery does not require or create provider state.
+- Another user's canonical record never satisfies the current user's duplicate check.
+- TMDB being disabled or unavailable cannot block access to existing canonical media.
+
+## Provider Catalog Lifecycle
+
+An imported provider catalog remains temporary even when it contains rich movie/show metadata.
+
+`playback_source_items` may store category, duration, year, match status, favorites, sync timestamps, encrypted artwork locators, encrypted playback locators, and safe provider metadata. None of those fields make the source item canonical.
+
+Catalog refresh may create, update, or mark provider items unavailable. It must not:
+
+- promote source items to canonical media without an explicit discovery/add or link action
+- overwrite canonical user-owned fields
+- delete canonical watch history, ratings, notes, or diary events
+- delete an existing media link merely because an imported item is temporarily missing
+- expose raw provider or playback locators in normal payloads
+
+Deterministic suggestions use exact public identity where available. A suggestion always requires confirmation. Confirming creates a user-scoped `media_links` row; unlinking removes only that association.
+
+Live provider items are never canonical movies or episodes. Live completion records a playback session/progress only and cannot create movie or episode watch history.
+
 ## Library Browser API
 
 The user-facing library browser is canonical-only. It is allowed to browse/search:

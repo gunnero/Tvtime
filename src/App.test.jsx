@@ -8,6 +8,7 @@ import {
   HistorySection,
   MovieLibrary,
   PlayerSection,
+  SettingsSection,
   ShowLibrary,
   TimelinePanel,
 } from "./App.jsx";
@@ -79,12 +80,20 @@ describe("DetailModal", () => {
     renderDetail();
 
     expect(screen.getByRole("dialog", { name: /heat details/i })).toBeInTheDocument();
+    expect(screen.getByText("9/10")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /notes & rating/i }));
     expect(screen.getByText("Private memory")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /your activity/i }));
     expect(screen.getByText("Entertainment diary")).toBeInTheDocument();
     expect(screen.getByText("Watched Heat")).toBeInTheDocument();
-    expect(screen.getByText("9/10")).toBeInTheDocument();
-    expect(screen.getByText("Linked to your source")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /watch history/i }));
     expect(screen.getByText(/manual entry/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /provider \/ playback/i }));
+    expect(screen.getByText("Ready from your source")).toBeInTheDocument();
   });
 
   it("renders enriched metadata without breaking poster fallback", () => {
@@ -104,11 +113,11 @@ describe("DetailModal", () => {
     };
     const { container } = renderDetail({ detail: enrichedDetail });
 
-    expect(container.querySelector(".modal-art")).toHaveAttribute("src", "https://image.tmdb.org/t/p/w500/heat-poster.jpg");
+    expect(container.querySelector(".cinematic-poster img")).toHaveAttribute("src", "https://image.tmdb.org/t/p/w500/heat-poster.jpg");
     expect(screen.getByText("Crime")).toBeInTheDocument();
     expect(screen.getByText("Drama")).toBeInTheDocument();
     expect(screen.getByText("1995")).toBeInTheDocument();
-    expect(screen.getByText("TMDB #949")).toBeInTheDocument();
+    expect(screen.getByText("949")).toBeInTheDocument();
     expect(screen.getByText("enriched")).toBeInTheDocument();
   });
 
@@ -149,15 +158,37 @@ describe("DetailModal", () => {
               },
             ],
           },
+          {
+            seasonNumber: 2,
+            watchedEpisodes: 0,
+            totalEpisodes: 1,
+            episodes: [
+              {
+                id: 201,
+                episodeId: 201,
+                showId: 8,
+                title: "Hello, Ms. Cobel",
+                code: "S02E01",
+                watched: false,
+              },
+            ],
+          },
         ],
       },
       onOpenEpisode,
     });
 
+    fireEvent.click(screen.getByRole("tab", { name: /episodes/i }));
     expect(screen.getByText("Season 1")).toBeInTheDocument();
     expect(screen.getByText("1/2 watched")).toBeInTheDocument();
     expect(screen.getByText("Good News About Hell")).toBeInTheDocument();
     expect(screen.getByText("Half Loop")).toBeInTheDocument();
+    expect(screen.queryByText("Hello, Ms. Cobel")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Season"), { target: { value: "2" } });
+    expect(screen.getByText("Hello, Ms. Cobel")).toBeInTheDocument();
+    expect(screen.queryByText("Half Loop")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Season"), { target: { value: "1" } });
 
     fireEvent.click(screen.getByRole("button", { name: /open half loop/i }));
 
@@ -174,6 +205,7 @@ describe("DetailModal", () => {
   it("saves and clears rating selections", () => {
     const props = renderDetail();
 
+    fireEvent.click(screen.getByRole("tab", { name: /notes & rating/i }));
     fireEvent.click(screen.getByRole("button", { name: "8" }));
     expect(props.onSaveRating).toHaveBeenCalledWith(movieDetail, 8);
 
@@ -183,6 +215,7 @@ describe("DetailModal", () => {
 
   it("saves and deletes private notes", () => {
     const props = renderDetail();
+    fireEvent.click(screen.getByRole("tab", { name: /notes & rating/i }));
     const note = screen.getByLabelText(/private note/i);
 
     fireEvent.change(note, { target: { value: "Updated note." } });
@@ -208,7 +241,7 @@ describe("DetailModal", () => {
     unwatchedProps.unmount();
 
     const watchedProps = renderDetail();
-    fireEvent.click(screen.getByRole("button", { name: /remove manual watch/i }));
+    fireEvent.click(screen.getByRole("button", { name: /remove from watch history/i }));
     expect(watchedProps.onMarkUnwatched).toHaveBeenCalledWith(movieDetail);
   });
 
@@ -226,192 +259,220 @@ describe("DetailModal", () => {
   });
 });
 
-const playerPayload = {
-  enabled: true,
-  emptyState: null,
-  sourceItems: [
-    {
-      id: 10,
-      sourceId: 3,
-      sourceName: "NAS",
-      sourceStatus: "active",
-      kind: "movie",
-      title: "Heat Source",
-      status: "available",
-      linked: false,
-      link: null,
-    },
-    {
-      id: 12,
-      sourceId: 3,
-      sourceName: "NAS",
-      sourceStatus: "active",
-      kind: "movie",
-      title: "Linked Heat Source",
-      status: "available",
-      linked: true,
-      link: { id: 22, movieId: 42, canonicalTitle: "Heat" },
-    },
-  ],
-  linkedItems: [{ id: 12 }],
-  unlinkedItems: [{ id: 10 }],
-  continueWatching: [],
+const unlinkedCatalogItem = {
+  id: 10,
+  sourceId: 3,
+  sourceName: "My Provider",
+  kind: "movie",
+  title: "Heat Source",
+  category: "Drama",
+  status: "available",
+  matchStatus: "needs_review",
+  playable: true,
+  linked: false,
+  favorite: false,
+  link: null,
 };
 
-function renderPlayer({ apiClient = vi.fn(), player = playerPayload, onRefreshDashboard = vi.fn() } = {}) {
-  const utils = render(
-    <PlayerSection
-      apiClient={apiClient}
-      onRefreshDashboard={onRefreshDashboard}
-      player={player}
-    />,
-  );
+const linkedCatalogItem = {
+  ...unlinkedCatalogItem,
+  id: 12,
+  title: "Linked Heat Source",
+  linked: true,
+  matchStatus: "linked",
+  link: { id: 22, movieId: 42, canonicalTitle: "Heat" },
+};
 
-  return { apiClient, onRefreshDashboard, ...utils };
+const providerSummary = {
+  id: 3,
+  name: "My Provider",
+  providerType: "manual",
+  enabled: true,
+  itemsCount: 2,
+  activeItemsCount: 2,
+  syncStatus: "ready",
+};
+
+const homeCatalog = {
+  view: "home",
+  categories: [{ name: "Drama", count: 2 }],
+  continueWatching: [unlinkedCatalogItem],
+  recentMovies: [unlinkedCatalogItem, linkedCatalogItem],
+  recentShows: [],
+  recentlyWatched: [],
+  linkedItems: [linkedCatalogItem],
+  needsMatching: [unlinkedCatalogItem],
+};
+
+function createPlayerClient(overrides = {}) {
+  return vi.fn(async (path, options = {}) => {
+    if (overrides[path]) return overrides[path](options);
+    const prefixOverride = Object.entries(overrides).find(([prefix]) => path.startsWith(prefix));
+    if (prefixOverride) return prefixOverride[1](options);
+    if (path === "/api/v1/providers") return { providers: [providerSummary] };
+    if (path.startsWith("/api/v1/player/catalog")) {
+      if (path.includes("view=movies")) return { view: "movies", categories: homeCatalog.categories, items: [unlinkedCatalogItem, linkedCatalogItem] };
+      if (path.includes("view=shows")) return { view: "shows", categories: [], items: [] };
+      if (path.includes("view=live")) return { view: "live", categories: [], items: [] };
+      return homeCatalog;
+    }
+    throw new Error(`Unexpected API call: ${path}`);
+  });
+}
+
+function renderPlayer({ apiClient = createPlayerClient(), player = { enabled: true }, onOpenSettings = vi.fn(), onRefreshDashboard = vi.fn() } = {}) {
+  const utils = render(<PlayerSection apiClient={apiClient} onOpenSettings={onOpenSettings} onRefreshDashboard={onRefreshDashboard} player={player} />);
+  return { apiClient, onOpenSettings, onRefreshDashboard, ...utils };
 }
 
 describe("PlayerSection", () => {
-  it("renders provider attach form and creates a user-owned provider", async () => {
-    const apiClient = vi.fn()
-      .mockResolvedValueOnce({ sources: [] })
-      .mockResolvedValueOnce({ items: [] })
-      .mockResolvedValueOnce({ source: { id: 7, name: "My NAS", providerType: "manual", status: "active", itemsCount: 0 } })
-      .mockResolvedValueOnce({ sources: [{ id: 7, name: "My NAS", providerType: "manual", status: "active", itemsCount: 0 }] })
-      .mockResolvedValueOnce({ items: [] });
-
-    renderPlayer({ apiClient, player: { ...playerPayload, enabled: false, sourceItems: [] } });
-
-    fireEvent.change(screen.getByLabelText(/source name/i), { target: { value: "My NAS" } });
-    fireEvent.click(screen.getByLabelText(/this is my private source/i));
-    fireEvent.click(screen.getByRole("button", { name: /attach source/i }));
-
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sources", {
-        method: "POST",
-        body: {
-          name: "My NAS",
-          provider_type: "manual",
-          legal_confirmed: true,
-        },
-      });
+  it("points the empty state to Provider Settings without blocking manual tracking", async () => {
+    const apiClient = createPlayerClient({
+      "/api/v1/providers": async () => ({ providers: [] }),
     });
+    const onOpenSettings = vi.fn();
+    renderPlayer({ apiClient, onOpenSettings, player: { enabled: false } });
+
+    expect(await screen.findByText(/connect your own provider in settings/i)).toBeInTheDocument();
+    expect(screen.getByText(/manual library tracking remains available/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open provider settings/i }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  it("renders provider items and creates a manual source item without exposing URLs in the list", async () => {
-    const apiClient = vi.fn()
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 1 }] })
-      .mockResolvedValueOnce({ items: playerPayload.sourceItems })
-      .mockResolvedValueOnce({ item: { ...playerPayload.sourceItems[0], id: 11, title: "Private File" } })
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 2 }] })
-      .mockResolvedValueOnce({ items: [{ ...playerPayload.sourceItems[0], id: 11, title: "Private File" }] });
+  it("renders the private catalog home and media navigation without raw URLs", async () => {
+    renderPlayer();
 
-    renderPlayer({ apiClient });
-
-    expect(await screen.findByText("Heat Source")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /linked to library/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /needs linking/i })).toBeInTheDocument();
-    expect(screen.getByText(/linking connects playback to permanent watch history/i)).toBeInTheDocument();
-    expect(screen.queryByText(/private.example.test/i)).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText(/item title/i), { target: { value: "Private File" } });
-    fireEvent.change(screen.getByLabelText(/stream or file URL/i), { target: { value: "https://private.example.test/movie.m3u8" } });
-    fireEvent.click(screen.getByRole("button", { name: /add source item/i }));
-
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sources/3/items", {
-        method: "POST",
-        body: {
-          title: "Private File",
-          kind: "movie",
-          stream_url: "https://private.example.test/movie.m3u8",
-        },
-      });
-    });
+    expect(await screen.findByRole("heading", { name: /continue watching/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /movies/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /shows/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /live tv/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /tv guide/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Heat Source").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/stream_url|playlist_url|provider_url/i);
   });
 
-  it("links and unlinks a source item with manual confirmation", async () => {
-    const apiClient = vi.fn()
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 1 }] })
-      .mockResolvedValueOnce({ items: playerPayload.sourceItems })
-      .mockResolvedValueOnce({ targets: [{ type: "movie", id: 42, title: "Heat", subtitle: "Movie", meta: "170 min" }] })
-      .mockResolvedValueOnce({ link: { id: 9, movie_id: 42 } })
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 1 }] })
-      .mockResolvedValueOnce({ items: [{ ...playerPayload.sourceItems[0], linked: true, link: { id: 9, movieId: 42, canonicalTitle: "Heat" } }] })
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 1 }] })
-      .mockResolvedValueOnce({ items: playerPayload.sourceItems });
+  it("loads a filtered provider movie catalog", async () => {
+    const apiClient = createPlayerClient();
+    renderPlayer({ apiClient });
+    await screen.findByRole("heading", { name: /continue watching/i });
 
+    fireEvent.click(screen.getByRole("button", { name: /^movies$/i }));
+    expect(await screen.findByLabelText(/search catalog/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/search catalog/i), { target: { value: "heat" } });
+    fireEvent.change(screen.getByLabelText(/category/i), { target: { value: "Drama" } });
+    fireEvent.click(screen.getAllByRole("button", { name: /^search$/i }).at(-1));
+
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith(expect.stringMatching(/view=movies.*query=heat.*category=Drama/)));
+  });
+
+  it("links and unlinks catalog items with explicit confirmation", async () => {
+    const apiClient = createPlayerClient({
+      "/api/v1/player/link-targets": async () => ({ targets: [{ type: "movie", id: 42, title: "Heat", subtitle: "Movie", meta: "170 min" }] }),
+      "/api/v1/player/items/10/link": async () => ({ link: { id: 9, movie_id: 42 } }),
+      "/api/v1/player/items/12/link": async () => null,
+    });
     renderPlayer({ apiClient });
 
-    fireEvent.click(await screen.findByRole("button", { name: /link heat source/i }));
-    fireEvent.change(screen.getByLabelText(/search your library/i), { target: { value: "Heat" } });
+    fireEvent.click((await screen.findAllByRole("button", { name: /link heat source/i }))[0]);
     fireEvent.click(screen.getByRole("button", { name: /search library/i }));
-
-    await screen.findByRole("button", { name: /heat movie 170 min/i });
-    fireEvent.click(screen.getByRole("button", { name: /heat movie 170 min/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith(expect.stringContaining("/api/v1/player/link-targets?")));
+    fireEvent.click((await screen.findByText("Heat")).closest("button"));
     fireEvent.click(screen.getByLabelText(/i confirm this source item matches/i));
     fireEvent.click(screen.getByRole("button", { name: /^link item$/i }));
 
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/10/link", {
-        method: "POST",
-        body: {
-          movie_id: 42,
-          confirm: true,
-        },
-      });
-    });
-
-    await waitFor(() => expect(screen.getByRole("button", { name: /unlink heat source/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /unlink heat source/i }));
-
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/10/link", { method: "DELETE" });
-    });
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/10/link", { method: "POST", body: { movie_id: 42, confirm: true } }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /unlink linked heat source/i }))[0]);
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/12/link", { method: "DELETE" }));
   });
 
-  it("starts playback and saves progress for an unlinked source item", async () => {
-    const apiClient = vi.fn()
-      .mockResolvedValueOnce({ sources: [{ id: 3, name: "NAS", providerType: "manual", status: "active", itemsCount: 1 }] })
-      .mockResolvedValueOnce({ items: playerPayload.sourceItems })
-      .mockResolvedValueOnce({ session: { id: 99, sourceItemId: 10, status: "playing" }, playbackUrl: "https://private.example.test/movie.m3u8" })
-      .mockResolvedValueOnce({ session: { id: 99, status: "playing", positionSeconds: 120, durationSeconds: 600 } })
-      .mockResolvedValueOnce({ session: { id: 99, status: "completed", positionSeconds: 600, durationSeconds: 600 } });
-
+  it("keeps the existing optional Kalveri AI suggestion behind user confirmation", async () => {
+    const apiClient = createPlayerClient({
+      "/api/v1/player/items/10/ai-match": async () => ({ suggestion: { status: "suggested", mediaType: "movie", candidateId: 42, confidence: 0.82, reason: "Title aligns with the local candidate.", requiresConfirmation: true, candidate: { type: "movie", id: 42, title: "Heat" } } }),
+      "/api/v1/player/items/10/link": async () => ({ link: { id: 9 } }),
+    });
     renderPlayer({ apiClient });
 
-    fireEvent.click(await screen.findByRole("button", { name: /play heat source/i }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /link heat source/i }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: /ask kalveri ai/i }));
+    expect(await screen.findByText("Suggested match")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/i confirm this source item matches/i));
+    fireEvent.click(screen.getByRole("button", { name: /^link item$/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/10/link", { method: "POST", body: { movie_id: 42, confirm: true, ai_suggestion: true } }));
+  });
 
-    expect(await screen.findByText(/progress is saved only to this private source until linked/i)).toBeInTheDocument();
-    expect(screen.getByTestId("provider-video")).toHaveAttribute("src", "https://private.example.test/movie.m3u8");
-
-    fireEvent.change(screen.getByLabelText(/position seconds/i), { target: { value: "120" } });
-    fireEvent.change(screen.getByLabelText(/duration seconds/i), { target: { value: "600" } });
-    fireEvent.click(screen.getByRole("button", { name: /save progress/i }));
-
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sessions/99", {
-        method: "PATCH",
-        body: {
-          position_seconds: 120,
-          duration_seconds: 600,
-          completed: false,
-        },
-      });
+  it("rejects an existing Kalveri AI suggestion safely", async () => {
+    const apiClient = createPlayerClient({
+      "/api/v1/player/items/10/ai-match": async () => ({ suggestion: { status: "suggested", mediaType: "movie", candidateId: 42, confidence: 0.75, reason: "Possible title match.", candidate: { type: "movie", id: 42, title: "Heat" } } }),
+      "/api/v1/player/items/10/ai-match/reject": async () => null,
     });
+    renderPlayer({ apiClient });
 
-    fireEvent.click(screen.getByRole("button", { name: /mark complete/i }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /link heat source/i }))[0]);
+    fireEvent.click(screen.getByRole("button", { name: /ask kalveri ai/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /reject suggestion/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/items/10/ai-match/reject", { method: "POST" }));
+    expect(screen.queryByText("Possible title match.")).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sessions/99", {
-        method: "PATCH",
-        body: {
-          position_seconds: 120,
-          duration_seconds: 600,
-          completed: true,
-        },
-      });
+  it("starts playback, saves native progress, and reports safe playback errors", async () => {
+    const playbackUrl = "https://media.invalid/owned-source.m3u8";
+    const apiClient = createPlayerClient({
+      "/api/v1/player/items/10/play": async () => ({ session: { id: 99, sourceItemId: 10, status: "playing" }, playbackUrl }),
+      "/api/v1/player/sessions/99": async () => ({ session: { id: 99, status: "playing" } }),
     });
+    renderPlayer({ apiClient });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /play heat source/i }))[0]);
+    expect(await screen.findByText(/progress is saved only to this source until linked/i)).toBeInTheDocument();
+    const video = screen.getByTestId("provider-video");
+    expect(video).toHaveAttribute("src", playbackUrl);
+    Object.defineProperty(video, "currentTime", { configurable: true, value: 120 });
+    Object.defineProperty(video, "duration", { configurable: true, value: 600 });
+    fireEvent.pause(video);
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sessions/99", { method: "PATCH", body: { position_seconds: 120, duration_seconds: 600, completed: false } }));
+    fireEvent.error(video);
+    expect(screen.getByText(/playback is unavailable/i)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsSection", () => {
+  it("creates a user-owned provider and keeps sensitive values out of the provider list", async () => {
+    let providers = [];
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path === "/api/v1/providers" && !options.method) return { providers };
+      if (path === "/api/v1/providers" && options.method === "POST") {
+        providers = [{ ...providerSummary, id: 7, name: options.body.name }];
+        return { provider: providers[0] };
+      }
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+    render(<SettingsSection apiClient={apiClient} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
+    fireEvent.change(screen.getByLabelText(/provider display name/i), { target: { value: "My NAS" } });
+    fireEvent.click(screen.getByLabelText(/i own or am authorized/i));
+    fireEvent.click(screen.getByRole("button", { name: /add provider/i }));
+
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/providers", { method: "POST", body: expect.objectContaining({ name: "My NAS", provider_type: "manual", legal_confirmed: true }) }));
+    expect((await screen.findAllByText("My NAS")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("media.invalid");
+  });
+
+  it("adds an item to a manual provider without displaying its private playback URL", async () => {
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path === "/api/v1/providers") return { providers: [providerSummary] };
+      if (path === "/api/v1/player/sources/3/items" && options.method === "POST") return { item: { id: 44, title: options.body.title } };
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+    render(<SettingsSection apiClient={apiClient} />);
+    fireEvent.click(screen.getByRole("button", { name: /^providers$/i }));
+    expect((await screen.findAllByText("My Provider")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText(/manual provider/i), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/item title/i), { target: { value: "Private Film" } });
+    fireEvent.change(screen.getByLabelText(/private playback url/i), { target: { value: "https://media.invalid/private-film.mp4" } });
+    fireEvent.click(screen.getByRole("button", { name: /add source item/i }));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/player/sources/3/items", { method: "POST", body: { title: "Private Film", kind: "movie", stream_url: "https://media.invalid/private-film.mp4" } }));
+    expect(document.body.textContent).not.toContain("https://media.invalid/private-film.mp4");
   });
 });
 
@@ -623,6 +684,36 @@ describe("GlobalSearchPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /open good news about hell/i }));
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ episodeId: 101 }));
+  });
+
+  it("discovers external movies and shows, previews them, and adds them safely", async () => {
+    const onLibraryChanged = vi.fn();
+    const apiClient = vi.fn(async (path, options = {}) => {
+      if (path.startsWith("/api/v1/library/search")) return { movies: [], shows: [], episodes: [] };
+      if (path.startsWith("/api/v1/discover/search")) return {
+        status: "ready",
+        items: [
+          { media_type: "movie", tmdb_id: 101, title: "Discovery Film", year: "2026", overview: "A newly discovered film.", genres: ["Drama"], already_in_library: false },
+          { media_type: "show", tmdb_id: 202, title: "Discovery Show", year: "2025", overview: "A newly discovered show.", genres: ["Mystery"], already_in_library: false },
+        ],
+        pagination: { page: 1, totalPages: 1 },
+      };
+      if (path === "/api/v1/discover/movies/101/add" && options.method === "POST") return { item: { id: 77, movieId: 77, title: "Discovery Film" } };
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+
+    render(<GlobalSearchPanel apiClient={apiClient} onLibraryChanged={onLibraryChanged} onOpen={vi.fn()} query="discover" />);
+    fireEvent.click(screen.getByRole("tab", { name: /discover/i }));
+
+    expect(await screen.findByText("Discovery Film")).toBeInTheDocument();
+    expect(screen.getByText("Discovery Show")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open discovery film/i }));
+    expect(screen.getByRole("dialog", { name: /discovery film discovery preview/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /add to library/i }));
+
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith("/api/v1/discover/movies/101/add", { method: "POST", body: { action: "library" } }));
+    expect(onLibraryChanged).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: /open in my library/i })).toBeInTheDocument();
   });
 });
 

@@ -30,26 +30,28 @@ class TMDBClientService
     /**
      * @return array<string, mixed>|null
      */
-    public function searchMovie(string $title, ?int $year = null): ?array
+    public function searchMovie(string $title, ?int $year = null, int $page = 1): ?array
     {
         return $this->get('/search/movie', array_filter([
             'query' => $title,
             'year' => $year,
             'include_adult' => false,
             'language' => 'en-US',
+            'page' => max(1, $page),
         ], fn (mixed $value): bool => $value !== null && $value !== ''));
     }
 
     /**
      * @return array<string, mixed>|null
      */
-    public function searchShow(string $title, ?int $year = null): ?array
+    public function searchShow(string $title, ?int $year = null, int $page = 1): ?array
     {
         return $this->get('/search/tv', array_filter([
             'query' => $title,
             'first_air_date_year' => $year,
             'include_adult' => false,
             'language' => 'en-US',
+            'page' => max(1, $page),
         ], fn (mixed $value): bool => $value !== null && $value !== ''));
     }
 
@@ -59,6 +61,7 @@ class TMDBClientService
     public function getMovie(int $tmdbId): ?array
     {
         return $this->get('/movie/'.$tmdbId, [
+            'append_to_response' => 'external_ids',
             'language' => 'en-US',
         ]);
     }

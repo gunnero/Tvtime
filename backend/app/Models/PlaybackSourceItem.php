@@ -21,10 +21,18 @@ class PlaybackSourceItem extends Model
         'stream_url_hash',
         'metadata',
         'last_seen_at',
+        'category',
+        'poster_url',
+        'duration_seconds',
+        'release_year',
+        'match_status',
+        'favorite',
+        'catalog_synced_at',
     ];
 
     protected $hidden = [
         'stream_url',
+        'poster_url',
     ];
 
     public function user(): BelongsTo
@@ -67,7 +75,12 @@ class PlaybackSourceItem extends Model
         return [
             'metadata' => 'array',
             'stream_url' => 'encrypted',
+            'poster_url' => 'encrypted',
             'last_seen_at' => 'datetime',
+            'duration_seconds' => 'integer',
+            'release_year' => 'integer',
+            'favorite' => 'boolean',
+            'catalog_synced_at' => 'datetime',
         ];
     }
 }

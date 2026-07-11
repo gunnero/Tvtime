@@ -42,6 +42,9 @@ Current routes:
 - `GET /api/v1/library/movies/{movie}`
 - `GET /api/v1/library/shows/{show}`
 - `GET /api/v1/library/episodes/{episode}`
+- `POST|DELETE /api/v1/library/movies/{movie}/watchlist`
+- `POST|DELETE /api/v1/library/shows/{show}/watchlist`
+- `POST|DELETE /api/v1/library/shows/{show}/seasons/{season}/watch`
 - `POST /api/v1/library/movies/{movie}/watch`
 - `POST /api/v1/library/episodes/{episode}/watch`
 - `DELETE /api/v1/library/movies/{movie}/watch`
@@ -57,12 +60,23 @@ Current routes:
 - `POST /api/v1/library/episodes/{episode}/notes`
 - `PATCH /api/v1/library/notes/{note}`
 - `DELETE /api/v1/library/notes/{note}`
+- `GET /api/v1/discover/search`
+- `POST /api/v1/discover/movies/{tmdbId}/add`
+- `POST /api/v1/discover/shows/{tmdbId}/add`
+- `GET /api/v1/providers`
+- `POST /api/v1/providers/test`
+- `POST /api/v1/providers`
+- `PATCH /api/v1/providers/{provider}`
+- `POST /api/v1/providers/{provider}/refresh`
+- `DELETE /api/v1/providers/{provider}`
 - `GET /api/v1/player/sources`
 - `POST /api/v1/player/sources`
 - `PATCH /api/v1/player/sources/{source}`
 - `DELETE /api/v1/player/sources/{source}`
 - `GET /api/v1/player/items`
+- `GET /api/v1/player/catalog`
 - `POST /api/v1/player/sources/{source}/items`
+- `PATCH /api/v1/player/items/{item}/favorite`
 - `GET /api/v1/player/link-targets`
 - `POST /api/v1/player/items/{item}/play`
 - `POST /api/v1/player/items/{item}/link`
@@ -115,6 +129,26 @@ The player service validates the whole ownership graph for source items, media l
 The frontend Player tab now uses these APIs for user-owned provider attach/manage, manual source-item creation, item search, manual link/unlink confirmation, HTML5/HLS playback, progress saving, and completion tracking. HLS support uses the frontend `hls.js` fallback where native browser playback is unavailable; no stream catalog or stream provider is bundled with MediaHub.
 
 The frontend Movies, Shows, History, global search, and show season browser use the canonical library endpoints. Provider source-item search remains isolated inside the Player tab.
+
+## Discovery And Catalog Import
+
+Discovery is separate from canonical library search. `GET /api/v1/discover/search` queries optional TMDB metadata through the backend, while the add routes create/reuse canonical same-user records and can set watchlist/watched state. Duplicate TMDB IDs do not create duplicate media. When TMDB is disabled or unavailable, discovery returns a safe empty status and the existing library remains fully usable.
+
+Provider configuration is handled by `ProviderService`; imported catalog refresh is handled by `ProviderCatalogService` and `ProviderConnectionService`. Supported first-pass adapters are Xtream-compatible API, M3U, XMLTV, and manual source. Type-specific connection details are required at creation, stored in encrypted `playback_sources.settings`, and represented in API summaries only as configuration booleans.
+
+Provider requests use configured timeouts, retries, item limits, and `MEDIAHUB_PROVIDER_MAX_RESPONSE_BYTES` so oversized JSON, M3U, or XMLTV responses are rejected before parsing.
+
+Catalog refresh:
+
+```bash
+php artisan mediahub:refresh-provider {provider_id}
+```
+
+The refresh command/API creates and updates same-user source items, marks removed imported items unavailable, retains links, and emits summary-only audit/media events. `playback_source_items.stream_url` and `poster_url` are encrypted and hidden. Normal catalog responses expose only title/category/year/duration, safe EPG program metadata, link/match state, progress, favorite, and playability/artwork-availability booleans.
+
+Only `POST /api/v1/player/items/{item}/play` returns `playbackUrl`, after validating the full same-user source/item/link ownership graph. Live sessions remain playback-session history and never create canonical movie/episode watches.
+
+See `../docs/mediahub/DISCOVERY_AND_PROVIDER_PLAYER_SPEC.md`.
 
 ## Kalveri AI Media Matcher
 

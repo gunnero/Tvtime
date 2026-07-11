@@ -115,7 +115,9 @@ class PlaybackLibraryService
             'stream_url' => $streamUrl,
             'stream_url_hash' => hash('sha256', $streamUrl),
             'metadata' => ['created_from' => 'manual-ui'],
+            'match_status' => 'needs_review',
             'last_seen_at' => now(),
+            'catalog_synced_at' => now(),
         ]);
 
         $this->auditLogs->record('playback_source_item.created', $user, $item, $user, [
@@ -141,6 +143,7 @@ class PlaybackLibraryService
         $query = PlaybackSourceItem::forUser($user)
             ->with([
                 'source',
+                'progress',
                 'mediaLink' => fn ($query) => $query->forUser($user)->with([
                     'movie' => fn ($movieQuery) => $movieQuery->forUser($user),
                     'show' => fn ($showQuery) => $showQuery->forUser($user),
@@ -155,6 +158,19 @@ class PlaybackLibraryService
 
         if (filled($filters['status'] ?? null)) {
             $query->where('status', $filters['status']);
+        }
+
+        if (filled($filters['kind'] ?? null)) {
+            $kinds = is_array($filters['kind']) ? $filters['kind'] : explode(',', (string) $filters['kind']);
+            $query->whereIn('kind', array_values(array_filter($kinds)));
+        }
+
+        if (filled($filters['category'] ?? null)) {
+            $query->where('category', $filters['category']);
+        }
+
+        if (filled($filters['match_status'] ?? null)) {
+            $query->where('match_status', $filters['match_status']);
         }
 
         if (($filters['linked'] ?? null) !== null) {
@@ -267,6 +283,100 @@ class PlaybackLibraryService
         ];
     }
 
+    /** @param array<string, mixed> $filters @return array<string, mixed> */
+    public function catalogFor(User $user, array $filters = []): array
+    {
+        $view = (string) ($filters['view'] ?? 'home');
+        $page = max(1, (int) ($filters['page'] ?? 1));
+        $perPage = min(60, max(1, (int) ($filters['per_page'] ?? 24)));
+        $base = PlaybackSourceItem::forUser($user)
+            ->with([
+                'source',
+                'progress',
+                'mediaLink' => fn ($query) => $query->forUser($user)->with([
+                    'movie' => fn ($movieQuery) => $movieQuery->forUser($user),
+                    'show' => fn ($showQuery) => $showQuery->forUser($user),
+                    'episode' => fn ($episodeQuery) => $episodeQuery->forUser($user),
+                ]),
+            ])
+            ->where('status', 'available')
+            ->whereHas('source', fn (Builder $query) => $query->forUser($user)->active());
+
+        $categories = (clone $base)
+            ->whereNotNull('category')
+            ->selectRaw('category, COUNT(*) as items_count')
+            ->groupBy('category')
+            ->orderByDesc('items_count')
+            ->limit(30)
+            ->get()
+            ->map(fn (PlaybackSourceItem $item): array => ['name' => $item->category, 'count' => (int) $item->items_count])
+            ->values()
+            ->all();
+
+        if ($view === 'home') {
+            return [
+                'view' => 'home',
+                'continueWatching' => $this->continueWatchingFor($user),
+                'recentMovies' => $this->catalogShelf(clone $base, ['movie'], 12),
+                'recentShows' => $this->catalogShelf(clone $base, ['show'], 12),
+                'recentlyWatched' => $this->catalogProgressShelf($user, 12),
+                'linkedItems' => $this->catalogShelf((clone $base)->whereHas('mediaLink', fn (Builder $query) => $query->forUser($user)), [], 12),
+                'needsMatching' => $this->catalogShelf((clone $base)->whereDoesntHave('mediaLink', fn (Builder $query) => $query->forUser($user)), [], 12),
+                'categories' => $categories,
+            ];
+        }
+
+        if ($view === 'movies') {
+            $base->where('kind', 'movie');
+        } elseif ($view === 'shows') {
+            $base->whereIn('kind', ['show', 'episode']);
+        } elseif (in_array($view, ['live', 'guide'], true)) {
+            $base->where('kind', 'live');
+        }
+
+        if (filled($filters['category'] ?? null)) {
+            $base->where('category', $filters['category']);
+        }
+        if (filled($filters['query'] ?? null)) {
+            $safeQuery = str_replace(['%', '_'], ['\%', '\_'], trim((string) $filters['query']));
+            $base->where('title', 'like', '%'.$safeQuery.'%');
+        }
+
+        $total = $base->count();
+        $items = $base
+            ->latest('catalog_synced_at')
+            ->latest('id')
+            ->forPage($page, $perPage)
+            ->get()
+            ->map(fn (PlaybackSourceItem $item): array => $this->sourceItemSummary($item))
+            ->values()
+            ->all();
+
+        if ($view === 'guide') {
+            $items = array_values(array_filter($items, fn (array $item): bool => ! empty($item['epg'])));
+        }
+
+        return [
+            'view' => $view,
+            'items' => $items,
+            'categories' => $categories,
+            'pagination' => [
+                'page' => $page,
+                'perPage' => $perPage,
+                'total' => $total,
+                'hasMore' => $page * $perPage < $total,
+            ],
+        ];
+    }
+
+    public function setFavorite(User $user, PlaybackSourceItem $item, bool $favorite): PlaybackSourceItem
+    {
+        $this->assertOwnedItem($user, $item);
+        $item->forceFill(['favorite' => $favorite])->save();
+
+        return $item->refresh()->loadMissing(['source', 'mediaLink', 'progress']);
+    }
+
     public function startPlayback(User $user, PlaybackSourceItem $item): PlaybackSession
     {
         $this->assertOwnedItem($user, $item);
@@ -346,6 +456,8 @@ class PlaybackLibraryService
             'linked_at' => now(),
         ]);
 
+        $item->forceFill(['match_status' => 'linked'])->save();
+
         $this->mediaEvents->record($user, MediaEventType::ProviderItemLinked, $item, [
             'title' => $item->title,
             'kind' => $item->kind,
@@ -378,6 +490,9 @@ class PlaybackLibraryService
         MediaLink::forUser($user)
             ->where('playback_source_item_id', $item->id)
             ->delete();
+
+        $suggested = is_array(($item->metadata ?? [])['link_suggestion'] ?? null);
+        $item->forceFill(['match_status' => $suggested ? 'suggested' : 'needs_review'])->save();
 
         if ($link) {
             $this->mediaEvents->record($user, MediaEventType::ProviderItemUnlinked, $item, [
@@ -569,19 +684,62 @@ class PlaybackLibraryService
         }
     }
 
+    /** @return array{episodes:int,watched:int} */
+    public function manuallyTrackSeason(User $user, Show $show, int $seasonNumber): array
+    {
+        $show = Show::forUser($user)->findOrFail($show->id);
+        $episodes = Episode::forUser($user)
+            ->where('show_id', $show->id)
+            ->where('season_number', $seasonNumber)
+            ->orderBy('episode_number')
+            ->get();
+
+        DB::transaction(function () use ($episodes, $user): void {
+            foreach ($episodes as $episode) {
+                $this->manuallyTrackEpisode($user, $episode, []);
+            }
+        });
+
+        return ['episodes' => $episodes->count(), 'watched' => $episodes->count()];
+    }
+
+    /** @return array{episodes:int,unwatched:int} */
+    public function untrackManualSeason(User $user, Show $show, int $seasonNumber): array
+    {
+        $show = Show::forUser($user)->findOrFail($show->id);
+        $episodeIds = Episode::forUser($user)
+            ->where('show_id', $show->id)
+            ->where('season_number', $seasonNumber)
+            ->pluck('id');
+        $deleted = EpisodeWatch::forUser($user)
+            ->whereIn('episode_id', $episodeIds)
+            ->where('source', 'manual')
+            ->delete();
+
+        return ['episodes' => $episodeIds->count(), 'unwatched' => $deleted];
+    }
+
     /**
      * @return array<string, mixed>
      */
     public function sourceSummary(PlaybackSource $source): array
     {
+        $metadata = $source->metadata ?? [];
+        $settings = $source->settings ?? [];
+
         return [
             'id' => $source->id,
             'name' => $source->name,
             'providerType' => $source->provider_type,
             'status' => $source->status,
-            'metadata' => $source->metadata ?? [],
             'itemsCount' => $source->items_count ?? $source->items()->count(),
             'lastSyncedAt' => $source->last_synced_at?->toIso8601String(),
+            'syncStatus' => $source->sync_status ?: 'idle',
+            'lastSyncError' => $source->last_sync_error,
+            'credentialsConfigured' => filled($settings['username'] ?? null) && filled($settings['password'] ?? null),
+            'serverConfigured' => filled($settings['base_url'] ?? null) || filled($settings['playlist_url'] ?? null),
+            'xmltvConfigured' => filled($settings['xmltv_url'] ?? null),
+            'epgAvailable' => (bool) ($metadata['epg_available'] ?? false),
         ];
     }
 
@@ -693,6 +851,20 @@ class PlaybackLibraryService
             'kind' => $item->kind,
             'title' => $item->title,
             'status' => $item->status,
+            'category' => $item->category,
+            'durationSeconds' => $item->duration_seconds,
+            'releaseYear' => $item->release_year,
+            'matchStatus' => $link ? 'linked' : $item->match_status,
+            'favorite' => (bool) $item->favorite,
+            'playable' => filled($item->stream_url),
+            'artworkAvailable' => filled($item->poster_url),
+            'progress' => $item->progress ? [
+                'positionSeconds' => $item->progress->position_seconds,
+                'durationSeconds' => $item->progress->duration_seconds,
+                'completed' => (bool) $item->progress->completed,
+            ] : null,
+            'epg' => is_array(($item->metadata ?? [])['epg'] ?? null) ? $item->metadata['epg'] : null,
+            'suggestedMatch' => is_array(($item->metadata ?? [])['link_suggestion'] ?? null) ? $item->metadata['link_suggestion'] : null,
             'linked' => (bool) $link,
             'link' => $link ? [
                 'id' => $link->id,
@@ -703,7 +875,37 @@ class PlaybackLibraryService
                 'linkedAt' => $link->linked_at?->toIso8601String(),
             ] : null,
             'lastSeenAt' => $item->last_seen_at?->toIso8601String(),
+            'catalogSyncedAt' => $item->catalog_synced_at?->toIso8601String(),
         ];
+    }
+
+    /** @param Builder<PlaybackSourceItem> $query @param list<string> $kinds @return list<array<string,mixed>> */
+    private function catalogShelf(Builder $query, array $kinds, int $limit): array
+    {
+        return $query
+            ->when($kinds !== [], fn (Builder $builder) => $builder->whereIn('kind', $kinds))
+            ->latest('catalog_synced_at')
+            ->latest('id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (PlaybackSourceItem $item): array => $this->sourceItemSummary($item))
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function catalogProgressShelf(User $user, int $limit): array
+    {
+        return PlaybackProgress::forUser($user)
+            ->with(['sourceItem.source', 'sourceItem.mediaLink', 'sourceItem.progress'])
+            ->whereHas('sourceItem', fn (Builder $query) => $query->forUser($user))
+            ->latest('updated_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (PlaybackProgress $progress): ?array => $progress->sourceItem ? $this->sourceItemSummary($progress->sourceItem) : null)
+            ->filter()
+            ->values()
+            ->all();
     }
 
     private function assertOwnedSource(User $user, PlaybackSource $source): void
