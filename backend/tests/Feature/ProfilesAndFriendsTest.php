@@ -284,4 +284,18 @@ class ProfilesAndFriendsTest extends TestCase
         $response = $this->getJson('/api/v1/friends')->assertOk();
         $this->assertStringNotContainsString($user->email, json_encode($response->json(), JSON_THROW_ON_ERROR));
     }
+
+    public function test_friend_invite_creation_has_an_independent_rate_limit_bucket(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        for ($request = 0; $request < 5; $request++) {
+            $this->patchJson('/api/v1/profile/privacy', [
+                'show_statistics' => $request % 2 === 0,
+            ])->assertOk();
+        }
+
+        $this->postJson('/api/v1/friend-invites')->assertCreated();
+    }
 }
