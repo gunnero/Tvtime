@@ -33,6 +33,14 @@ Do not commit or expose:
 - backend storage imports, generated private JSON, database dumps, or private SQLite files.
 - provider URLs, stream URLs, provider credentials, or global provider caches.
 
+## Profiles And Friends
+
+MediaHub V1 includes an opt-in social foundation without a public activity feed or messaging. The account menu opens Profile, Friends, Invite Friends, Privacy, Settings, and Logout. Profiles default to private, friendships require mutual confirmation, and friend invitations are short-lived, revocable, and explicitly accepted.
+
+Public profile responses use a strict allowlist. Email, private notes, ratings, raw history, diary events, alerts, exports, internal IDs, roles, devices, providers, catalogs, credentials, stream locators, playback sessions, and progress are never public. MediaHub does not sell viewing history. The `show_recent_activity` preference is reserved, but Web V1 publishes no recent activity even when it is enabled.
+
+See `docs/mediahub/PROFILES_AND_FRIENDS_SPEC.md`.
+
 ## Canonical Media Rule
 
 Canonical media and watch history are permanent. Provider items are temporary.

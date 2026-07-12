@@ -6,6 +6,7 @@ use App\Enums\UserStatus;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AnalyticsService;
+use App\Services\UserProfileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function login(Request $request, AnalyticsService $analytics): JsonResponse
+    public function login(Request $request, AnalyticsService $analytics, UserProfileService $profiles): JsonResponse
     {
         $credentials = $request->validate([
             'email' => ['required', 'email'],
@@ -38,7 +39,8 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
-        $user->forceFill(['last_login_at' => now()])->save();
+        $user->forceFill(['last_login_at' => now(), 'last_active_at' => now()])->save();
+        $profiles->ensureProfile($user);
         $analytics->record('user.login', $user);
 
         return response()->json(null, 204);
@@ -53,10 +55,10 @@ class AuthController extends Controller
         return response()->json(null, 204);
     }
 
-    public function me(Request $request): JsonResponse
+    public function me(Request $request, UserProfileService $profiles): JsonResponse
     {
         /** @var User $user */
-        $user = $request->user();
+        $user = $profiles->ensureProfile($request->user());
 
         return response()->json([
             'user' => [
@@ -65,6 +67,10 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'role' => $user->role->value,
                 'status' => $user->status->value,
+                'username' => $user->username,
+                'displayName' => $user->display_name,
+                'profileSlug' => $user->profile_slug,
+                'avatar' => $user->avatar_path,
             ],
         ]);
     }

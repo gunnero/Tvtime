@@ -5,6 +5,21 @@ Repository: `/Users/aleksandardimovski/Sites/tvtime/dashboard`
 Remote: `https://github.com/gunnero/Tvtime.git`
 Staging: `https://ccc.razbudise.mk` with a public login page, Laravel-authenticated private routes, and Apache `noindex`
 
+## 2026-07-12 Profiles And Friends Addendum
+
+This local, uncommitted V1 bugfix replaces the inert top-right account control with an accessible account menu and adds the first private-by-default social foundation.
+
+- `users` now carries unique username/slug, chosen display identity, optional bio/avatar/country/genres, profile visibility, selected favorites/lists, publication switches, and membership/activity timestamps.
+- `friendships` stores one user pair with pending, accepted, declined, or blocked state. Ownership checks protect accept/decline/remove/block operations; blocked users cannot remove someone else's block.
+- `friend_invites` stores only a token hash and tracks pending/opened/accepted/expired/revoked state. Opening does not create a friendship; acceptance is explicit.
+- Public profiles are served at `/u/{profile_slug}`. Private profiles return only a minimal identity shell. Friends-only content requires an accepted friendship. Public content is field-by-field opt-in.
+- Public output never contains email, private notes, ratings, raw history, diary events, provider/player data, exports, internal IDs, roles, alerts, IP/device data, or last-active timestamps.
+- The recent-activity preference is stored but V1 intentionally emits no public activity.
+- New account destinations are Profile, Friends, Invite Friends, Privacy, and Settings. Public-preview mode applies guest rules even for the owner.
+- Safe in-app alerts cover friend request received, friend request accepted, and invitation accepted. No social email delivery was added.
+
+Source of truth: `docs/mediahub/PROFILES_AND_FRIENDS_SPEC.md`.
+
 ## 2026-07-11 Web V1 Addendum
 
 This section supersedes older implementation-status statements below.

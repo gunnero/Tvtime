@@ -24,6 +24,9 @@ Web V1 includes:
 - private TV Time import workflow
 - user-owned JSON and CSV exports
 - metadata status, privacy, account, and version information
+- private-by-default profiles with explicit per-field public controls
+- mutual friendships, safe in-app friend notifications, and revocable invitation links
+- selected favorite movies, shows, and public lists when a member explicitly publishes them
 
 No Web V1 capability is subscription-gated.
 
@@ -41,6 +44,14 @@ The stable navigation order is:
 8. Stats
 9. Lists
 10. Settings
+
+Profile, Friends, and Invite Friends are account-menu destinations rather than primary library navigation items.
+
+## Social Boundary
+
+Web V1 social features are deliberately narrow: chosen profile identity, mutual friendships, profile search only when enabled, explicit sharing, and selected featured content. Profiles are private by default and all publication controls start disabled.
+
+Web V1 does not include chat, direct messaging, a public activity feed, automatic history sharing, public ratings, or public notes. The recent-activity preference is retained for future compatibility but publishes nothing in V1. MediaHub does not sell viewing history, and private media data does not become social data implicitly.
 
 ## Deferred Player Surface
 

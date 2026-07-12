@@ -1,6 +1,6 @@
 # MediaHub Web V1 Checklist
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 Status: implementation and local QA complete; not deployed
 
@@ -22,6 +22,12 @@ Status: implementation and local QA complete; not deployed
 - [x] Existing private TV Time import retained
 - [x] User-owned JSON and CSV export
 - [x] Final Profile, Privacy, Notifications, Import & Export, Metadata, Account, and About settings
+- [x] Accessible account dropdown with explicit logout
+- [x] Private-by-default profile identity and public preview
+- [x] Opt-in statistics, favorites, public lists, sharing, friend requests, and discovery
+- [x] Mutual friend request, accept, decline, remove, and block flows
+- [x] Short-lived, revocable friend invitation links with explicit acceptance
+- [x] Safe in-app social notifications without email leakage
 
 ## Product Boundary
 
@@ -46,6 +52,8 @@ Status: implementation and local QA complete; not deployed
 - [x] Desktop screenshots
 - [x] Mobile screenshots and horizontal-overflow review
 - [x] Keyboard/focus review
+- [x] Profile/friendship ownership and public-serialization tests
+- [x] Mobile account/profile/friends/invite responsive rules
 
 ## Operations
 
@@ -78,5 +86,7 @@ Status: implementation and local QA complete; not deployed
 - Deployment is intentionally blocked until explicit approval.
 - User-facing import remains an assisted private workflow; there is no raw GDPR upload form.
 - Email notification delivery and push notifications are not part of V1.
+- Public activity, messaging, public ratings, and public notes are not part of V1.
+- Avatar storage exists as an optional profile field; a user-facing avatar upload workflow is deferred.
 - Aggregate-only imported show totals cannot be converted into invented episode rows.
 - The local archive contains 15 season/episode zero-number identity groups. They are retained as ambiguous imported records and are not eligible for automatic deduplication.

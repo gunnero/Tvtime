@@ -8,19 +8,22 @@ use App\Models\Episode;
 use App\Models\MediaEvent;
 use App\Models\Movie;
 use App\Models\Show;
+use App\Services\UserProfileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, UserProfileService $profiles): JsonResponse
     {
         $user = $request->user();
         $lastImport = MediaEvent::forUser($user)->where('source', MediaEventSource::Import->value)->max('occurred_at');
 
+        $profile = $profiles->ownPayload($user);
+
         return response()->json([
-            'profile' => ['name' => $user->name, 'email' => $user->email, 'role' => $user->role->value],
-            'privacy' => ['library' => 'private', 'listsDefault' => 'private', 'providerDataInWeb' => false],
+            'profile' => [...$profile['profile'], 'name' => $user->name, 'role' => $user->role->value],
+            'privacy' => [...$profile['privacy'], 'library' => 'private', 'listsDefault' => 'private', 'providerDataInWeb' => false],
             'metadata' => [
                 'provider' => 'TMDB',
                 'movies' => ['enriched' => Movie::forUser($user)->whereNotNull('metadata_refreshed_at')->count(), 'total' => Movie::forUser($user)->count()],

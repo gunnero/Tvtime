@@ -21,6 +21,7 @@ class DashboardPayloadService
         private readonly MediaLibraryService $mediaLibrary,
         private readonly MediaMetadataService $metadata,
         private readonly PlaybackLibraryService $playbackLibrary,
+        private readonly UserProfileService $profiles,
     ) {}
 
     /**
@@ -28,6 +29,7 @@ class DashboardPayloadService
      */
     public function forUser(User $user): array
     {
+        $user = $this->profiles->ensureProfile($user);
         $this->alertService->syncForUser($user);
         $stats = $this->mediaLibrary->statsFor($user);
         $alertsUnread = Alert::forUser($user)->unread()->count();
@@ -43,7 +45,10 @@ class DashboardPayloadService
             'profile' => [
                 'id' => $user->id,
                 'name' => $user->name,
-                'image' => '',
+                'username' => $user->username,
+                'displayName' => $user->display_name,
+                'slug' => $user->profile_slug,
+                'image' => $user->avatar_path ?: '',
                 'cover' => '',
             ],
             'source' => [

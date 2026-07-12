@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ProfileVisibility;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use Database\Factories\UserFactory;
@@ -21,11 +22,33 @@ class User extends Authenticatable implements FilamentUser
 
     protected $fillable = [
         'name',
+        'username',
+        'display_name',
+        'bio',
+        'avatar_path',
+        'public_profile_enabled',
+        'profile_visibility',
+        'profile_slug',
+        'country',
+        'favorite_genres',
+        'favorite_movie_ids',
+        'favorite_show_ids',
+        'featured_list_ids',
+        'show_statistics',
+        'show_favorite_movies',
+        'show_favorite_shows',
+        'show_public_lists',
+        'show_recent_activity',
+        'allow_friend_requests',
+        'allow_profile_sharing',
+        'allow_search_discovery',
         'email',
         'password',
         'role',
         'status',
         'last_login_at',
+        'joined_at',
+        'last_active_at',
     ];
 
     protected $hidden = [
@@ -42,6 +65,21 @@ class User extends Authenticatable implements FilamentUser
     public function invitesCreated(): HasMany
     {
         return $this->hasMany(Invite::class, 'invited_by_user_id');
+    }
+
+    public function friendshipsRequested(): HasMany
+    {
+        return $this->hasMany(Friendship::class, 'requester_user_id');
+    }
+
+    public function friendshipsReceived(): HasMany
+    {
+        return $this->hasMany(Friendship::class, 'addressee_user_id');
+    }
+
+    public function friendInvitesCreated(): HasMany
+    {
+        return $this->hasMany(FriendInvite::class, 'inviter_user_id');
     }
 
     public function alerts(): HasMany
@@ -159,9 +197,25 @@ class User extends Authenticatable implements FilamentUser
         return [
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'joined_at' => 'datetime',
+            'last_active_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
             'status' => UserStatus::class,
+            'profile_visibility' => ProfileVisibility::class,
+            'favorite_genres' => 'array',
+            'favorite_movie_ids' => 'array',
+            'favorite_show_ids' => 'array',
+            'featured_list_ids' => 'array',
+            'public_profile_enabled' => 'boolean',
+            'show_statistics' => 'boolean',
+            'show_favorite_movies' => 'boolean',
+            'show_favorite_shows' => 'boolean',
+            'show_public_lists' => 'boolean',
+            'show_recent_activity' => 'boolean',
+            'allow_friend_requests' => 'boolean',
+            'allow_profile_sharing' => 'boolean',
+            'allow_search_discovery' => 'boolean',
         ];
     }
 }

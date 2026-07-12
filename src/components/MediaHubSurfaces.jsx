@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Star, TelevisionSimple, X } from "@phosphor-icons/react";
 import { apiRequest, SessionExpiredError } from "../lib/api.js";
+import { PrivacyControls } from "./ProfileSurfaces.jsx";
 
 function queryString(values) {
   const params = new URLSearchParams();
@@ -207,8 +208,8 @@ export function PlayerSection({ apiClient = apiRequest, onOpenSettings, onRefres
 
 const emptyProviderForm = { name: "", providerType: "manual", baseUrl: "", username: "", password: "", playlistUrl: "", xmltvUrl: "", epgTimeShift: "0", refreshFrequency: "manual", enabled: true, legalConfirmed: false };
 
-export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessionExpired, providersEnabled = false }) {
-  const [section, setSection] = useState("profile");
+export function SettingsSection({ apiClient = apiRequest, initialSection = "profile", onOpenPlayer, onSessionExpired, providersEnabled = false }) {
+  const [section, setSection] = useState(initialSection);
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -227,6 +228,7 @@ export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessio
     if (providersEnabled) loadProviders();
     else setLoading(false);
   }, [providersEnabled]);
+  useEffect(() => setSection(initialSection), [initialSection]);
 
   function body(includeLegal = false) {
     return { name: form.name.trim(), provider_type: form.providerType, base_url: form.baseUrl.trim() || null, username: form.username.trim() || null, password: form.password || null, playlist_url: form.playlistUrl.trim() || null, xmltv_url: form.xmltvUrl.trim() || null, epg_time_shift: Number(form.epgTimeShift || 0), refresh_frequency: form.refreshFrequency, enabled: form.enabled, ...(includeLegal ? { legal_confirmed: form.legalConfirmed } : {}) };
@@ -271,7 +273,7 @@ export function SettingsSection({ apiClient = apiRequest, onOpenPlayer, onSessio
   return (
     <section className="settings-screen"><header><span className="eyebrow">Your MediaHub</span><h2>Settings</h2><p>Control your private library, providers, metadata, and backups.</p></header><nav className="settings-nav" aria-label="Settings sections">{sections.map(([id, label]) => <button className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)} type="button">{label}</button>)}</nav>{error ? <div className="detail-error">{error}</div> : null}{status ? <div className="settings-status">{status}</div> : null}
       {section === "profile" ? <div className="settings-editorial"><h3>Profile</h3><p>Your account identity is used only inside this private MediaHub installation.</p><dl><div><dt>Account</dt><dd>Authenticated member</dd></div><div><dt>Visibility</dt><dd>Private</dd></div></dl></div> : null}
-      {section === "privacy" ? <div className="settings-editorial"><h3>Privacy</h3><p>Watch history, ratings, notes, provider catalogs, and playback progress are scoped to your account.</p><dl><div><dt>Provider credentials</dt><dd>Encrypted at rest</dd></div><div><dt>Stream URLs</dt><dd>Owner playback only</dd></div></dl></div> : null}
+      {section === "privacy" ? <PrivacyControls apiClient={apiClient} onSessionExpired={onSessionExpired} /> : null}
       {section === "library" ? <div className="settings-editorial"><h3>Library</h3><p>Your canonical library, ratings, notes, and watch history survive provider changes.</p></div> : null}
       {section === "backups" ? <div className="settings-editorial"><h3>Backups</h3><p>Private user backups exclude stream URLs, provider credentials, tokens, and API keys.</p></div> : null}
       {section === "metadata" ? <div className="settings-editorial"><h3>Metadata</h3><p>TMDB enriches canonical titles when enabled. MediaHub still works when it is unavailable.</p></div> : null}

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   CalendarDots,
-  CaretDown,
   ChartBar,
   CheckCircle,
   Clock,
@@ -13,10 +12,8 @@ import {
   ListBullets,
   MagnifyingGlass,
   Play,
-  SignOut,
   SquaresFour,
   TelevisionSimple,
-  UserCircle,
   X,
 } from "@phosphor-icons/react";
 import {
@@ -34,10 +31,34 @@ import {
   StatsSection,
   WebSettingsSection,
 } from "./components/WebV1Surfaces.jsx";
+import {
+  AccountMenu,
+  FriendInviteLandingPage,
+  FriendsSection,
+  InviteFriendsSection,
+  OwnProfileSection,
+  PublicProfilePage,
+} from "./components/ProfileSurfaces.jsx";
 
 export { PlayerSection, SettingsSection } from "./components/MediaHubSurfaces.jsx";
 
 const generatedPosterPattern = /\/assets\/generated\/movie-poster-\d+\.png(?:[?#].*)?$/;
+
+function resolvePublicRoute(pathname) {
+  const profileMatch = pathname.match(/^\/u\/([^/]+)\/?$/);
+  if (profileMatch) return { type: "profile", value: safeDecodeRouteValue(profileMatch[1]) };
+  const inviteMatch = pathname.match(/^\/invite\/([^/]+)\/?$/);
+  if (inviteMatch) return { type: "invite", value: safeDecodeRouteValue(inviteMatch[1]) };
+  return null;
+}
+
+function safeDecodeRouteValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 const navItems = [
   { id: "home", label: "Home", icon: House },
@@ -355,7 +376,7 @@ function LoginScreen({ error, onLogin, submitting }) {
   );
 }
 
-function Topbar({ profile, query, onQueryChange, onLogout }) {
+function Topbar({ onAccountAction, profile, query, onQueryChange, onLogout }) {
   return (
     <header className="topbar">
       <label className="search-box">
@@ -367,19 +388,7 @@ function Topbar({ profile, query, onQueryChange, onLogout }) {
         />
       </label>
       <div className="topbar-actions">
-        <button className="profile-menu" type="button">
-          {profile.image ? (
-            <img src={profile.image} alt="" />
-          ) : (
-            <UserCircle size={38} weight="duotone" />
-          )}
-          <span>{profile.name || "gunner"}</span>
-          <CaretDown size={16} />
-        </button>
-        <button className="logout-button" onClick={onLogout} type="button">
-          <SignOut size={18} />
-          <span>Logout</span>
-        </button>
+        <AccountMenu onLogout={onLogout} onNavigate={onAccountAction} profile={profile} />
       </div>
     </header>
   );
@@ -1605,12 +1614,27 @@ function FocusSection({
   features,
   globalQuery,
   onOpen,
+  onAccountAction,
   onPlayerRefresh,
   onSelectSection,
   onSessionExpired,
   player,
+  profileMode,
+  settingsInitialSection,
   stats,
 }) {
+  if (activeSection === "profile") {
+    return <OwnProfileSection apiClient={apiClient} editInitially={profileMode === "edit"} onOpenPrivacy={() => onAccountAction("privacy")} onSessionExpired={onSessionExpired} />;
+  }
+
+  if (activeSection === "friends") {
+    return <FriendsSection apiClient={apiClient} onSessionExpired={onSessionExpired} />;
+  }
+
+  if (activeSection === "invite-friends") {
+    return <InviteFriendsSection apiClient={apiClient} onSessionExpired={onSessionExpired} />;
+  }
+
   if (activeSection === "discover") {
     return <DiscoverSection apiClient={apiClient} onLibraryChanged={onPlayerRefresh} onOpen={onOpen} onSessionExpired={onSessionExpired} />;
   }
@@ -1681,17 +1705,20 @@ function FocusSection({
     return features?.webProvidersEnabled ? (
       <SettingsSection
         apiClient={apiClient}
+        initialSection={settingsInitialSection}
         onOpenPlayer={() => onSelectSection("player")}
         onSessionExpired={onSessionExpired}
         providersEnabled={Boolean(features?.webProvidersEnabled)}
       />
-    ) : <WebSettingsSection apiClient={apiClient} onSessionExpired={onSessionExpired} />;
+    ) : <WebSettingsSection apiClient={apiClient} initialSection={settingsInitialSection} onSessionExpired={onSessionExpired} />;
   }
 
   return null;
 }
 
 export function App() {
+  const publicRoute = resolvePublicRoute(window.location.pathname);
+  const pendingFriendInvite = new URLSearchParams(window.location.search).get("friend-invite");
   const [dashboard, setDashboard] = useState(fallbackData);
   const [authUser, setAuthUser] = useState(null);
   const [appState, setAppState] = useState("checking");
@@ -1710,8 +1737,11 @@ export function App() {
   const [authError, setAuthError] = useState("");
   const [apiError, setApiError] = useState("");
   const [submittingLogin, setSubmittingLogin] = useState(false);
+  const [profileMode, setProfileMode] = useState("view");
+  const [settingsInitialSection, setSettingsInitialSection] = useState("profile");
 
   useEffect(() => {
+    if (publicRoute) return undefined;
     let cancelled = false;
 
     async function loadAuthenticatedDashboard() {
@@ -1720,6 +1750,11 @@ export function App() {
         const payload = await apiRequest("/api/v1/dashboard");
 
         if (cancelled) {
+          return;
+        }
+
+        if (pendingFriendInvite) {
+          window.location.replace(`/invite/${encodeURIComponent(pendingFriendInvite)}`);
           return;
         }
 
@@ -1746,7 +1781,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pendingFriendInvite, publicRoute?.type, publicRoute?.value]);
 
   const alerts = useMemo(
     () =>
@@ -1779,6 +1814,7 @@ export function App() {
     setReadAlerts(new Set());
     setAppState("ready");
     setLoadState("ready");
+    if (pendingFriendInvite) window.location.assign(`/invite/${encodeURIComponent(pendingFriendInvite)}`);
   }
 
   async function refreshDashboard() {
@@ -1860,6 +1896,30 @@ export function App() {
     setSelectedDetail(null);
     setAppState("login");
     setLoadState("guest");
+  }
+
+  function handleAccountAction(action) {
+    if (action === "view-profile" || action === "edit-profile") {
+      setProfileMode(action === "edit-profile" ? "edit" : "view");
+      setActiveSection("profile");
+      return;
+    }
+    if (action === "privacy") {
+      setSettingsInitialSection("privacy");
+      setActiveSection("settings");
+      return;
+    }
+    if (action === "settings") {
+      setSettingsInitialSection("profile");
+      setActiveSection("settings");
+      return;
+    }
+    if (["friends", "invite-friends"].includes(action)) setActiveSection(action);
+  }
+
+  function selectSection(section) {
+    if (section === "settings") setSettingsInitialSection("profile");
+    setActiveSection(section);
   }
 
   function expireSession() {
@@ -2024,6 +2084,14 @@ export function App() {
     }
   }
 
+  if (publicRoute?.type === "profile") {
+    return <PublicProfilePage preview={new URLSearchParams(window.location.search).get("preview") === "public"} slug={publicRoute.value} />;
+  }
+
+  if (publicRoute?.type === "invite") {
+    return <FriendInviteLandingPage token={publicRoute.value} />;
+  }
+
   if (appState === "checking") {
     return <LoadingScreen />;
   }
@@ -2052,16 +2120,19 @@ export function App() {
     );
   }
 
+  const socialSection = ["profile", "friends", "invite-friends"].includes(activeSection);
+
   return (
     <div className="app-shell">
       <Sidebar
         activeSection={activeSection}
         alertsCount={unreadCount}
         features={dashboard.features}
-        onSelect={setActiveSection}
+        onSelect={selectSection}
       />
       <main className="dashboard-shell">
         <Topbar
+          onAccountAction={handleAccountAction}
           profile={{ ...dashboard.profile, name: dashboard.profile.name || authUser?.name }}
           query={query}
           onLogout={handleLogout}
@@ -2070,9 +2141,9 @@ export function App() {
         {isEmptyLibrary ? (
           <div className="data-warning">Your library is empty.</div>
         ) : null}
-        <div className="dashboard-grid">
+        <div className={`dashboard-grid${socialSection ? " social-dashboard-grid" : ""}`}>
           <div className="primary-column">
-            <Hero item={dashboard.hero} onOpen={openItem} />
+            {!socialSection ? <Hero item={dashboard.hero} onOpen={openItem} /> : null}
             {query.trim().length >= 2 && activeSection === "home" ? (
               <GlobalSearchPanel
                 apiClient={apiRequest}
@@ -2105,16 +2176,19 @@ export function App() {
                 collections={collections}
                 features={dashboard.features}
                 globalQuery={query}
+                onAccountAction={handleAccountAction}
                 onOpen={openItem}
                 onPlayerRefresh={refreshDashboard}
-                onSelectSection={setActiveSection}
+                onSelectSection={selectSection}
                 onSessionExpired={expireSession}
                 player={dashboard.player}
+                profileMode={profileMode}
+                settingsInitialSection={settingsInitialSection}
                 stats={stats}
               />
             )}
           </div>
-          <aside className="insight-column">
+          {!socialSection ? <aside className="insight-column">
             <TimelinePanel timeline={dashboard.timeline} />
             <AlertCenter
               activeTab={activeAlertTab}
@@ -2131,7 +2205,7 @@ export function App() {
             />
             <StatsStrip stats={stats} />
             <ActivityChart activity={dashboard.activity} />
-          </aside>
+          </aside> : null}
         </div>
       </main>
       <DetailModal
