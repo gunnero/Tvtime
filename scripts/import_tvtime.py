@@ -14,11 +14,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
-DEFAULT_GDPR_ZIP = Path(
-    "/Users/aleksandardimovski/Documents/tvtime-backup-2026-07-03/"
-    "official-gdpr-export/gdpr-data.zip",
-)
-DEFAULT_PUBLIC_DIR = Path("/Users/aleksandardimovski/Documents/tvtime-backup-2026-07-03")
+DEFAULT_GDPR_ZIP = Path("private-imports/gdpr-data.zip")
+DEFAULT_PUBLIC_DIR = Path("private-imports/public-data")
 DEFAULT_SQLITE = Path("var/private/tvtime.sqlite")
 DEFAULT_DASHBOARD_JSON = Path("public/data/dashboard-data.json")
 DEFAULT_ASSET_CACHE = Path("public/assets/cache")

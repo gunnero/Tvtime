@@ -1,10 +1,10 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "gunnero/mediahub-backend",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
-    "license": "MIT",
+    "description": "Authenticated API and domain backend for MediaHub.",
+    "keywords": ["mediahub", "laravel", "media-tracker"],
+    "license": "proprietary",
     "require": {
         "ext-gd": "*",
         "php": "^8.3",

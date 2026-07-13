@@ -22,3 +22,5 @@ gdpr-data.zip
 qa/
 design-qa.md
 .DS_Store
+__pycache__/
+*.pyc
