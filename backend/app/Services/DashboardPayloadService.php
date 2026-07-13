@@ -54,7 +54,7 @@ class DashboardPayloadService
                 'cover' => '',
             ],
             'source' => [
-                'kind' => 'TV Time Laravel backend',
+                'kind' => 'MediaHub library',
                 'generatedAt' => now()->toIso8601String(),
             ],
             'stats' => [
@@ -64,7 +64,7 @@ class DashboardPayloadService
             'hero' => $recentlyWatched[0] ?? [
                 'title' => 'Start your archive',
                 'subtitle' => 'Your private library is empty',
-                'meta' => 'Import or add TV Time data later',
+                'meta' => 'Import compatible history or add titles later',
                 'poster' => '',
                 'backdrop' => '',
                 'progress' => 0,

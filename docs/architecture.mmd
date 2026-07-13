@@ -1,0 +1,17 @@
+flowchart LR
+    Person["MediaHub user"] --> Web["React web application"]
+    Web -->|"same-origin session API"| API["Laravel API"]
+    Admin["Authorized administrator"] --> Review["Filament review tools"]
+    Review --> API
+    API --> Auth["Authentication and authorization"]
+    API --> Domain["Canonical media, diary, lists, ratings, notes"]
+    API --> Social["Private-by-default profiles and friendships"]
+    API --> Jobs["Background jobs"]
+    Import["User-requested compatibility import"] --> API
+    Export["User-owned export"] <-- API
+    Jobs --> Metadata["External metadata provider boundary"]
+    Auth --> Store[("Relational storage")]
+    Domain --> Store
+    Social --> Store
+    Jobs --> Store
+    API --> PrivateFiles["Private avatars and exports"]
