@@ -156,6 +156,38 @@ class MediaMetadataService
     /**
      * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
+    public function matchMovie(Movie $movie, int $tmdbId): array
+    {
+        if (! $this->tmdb->enabled()) {
+            return $this->summary(planned: 1, skipped: 1);
+        }
+
+        $details = $this->tmdb->getMovie($tmdbId);
+
+        if (! $details) {
+            return $this->summary(planned: 1, failed: 1);
+        }
+
+        $match = [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'manual',
+        ];
+
+        $this->applyMovieDetails($movie, $details, $match);
+        $this->mediaEvents->record($movie->user, MediaEventType::MetadataEnriched, $movie, [
+            'title' => $movie->title,
+            'media_type' => 'movie',
+            'tmdb_id' => $movie->tmdb_id,
+            'match' => $match,
+        ], MediaEventSource::Metadata);
+
+        return $this->summary(planned: 1, matched: 1, enriched: 1);
+    }
+
+    /**
+     * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
+     */
     public function matchShow(Show $show, int $tmdbId): array
     {
         if (! $this->tmdb->enabled()) {
@@ -409,6 +441,24 @@ class MediaMetadataService
     }
 
     /**
+     * @param  array<string, mixed>  $details
+     */
+    public function applyCatalogEpisode(Episode $episode, array $details): void
+    {
+        if (blank($episode->title) && filled($details['name'] ?? null)) {
+            $episode->forceFill(['title' => (string) $details['name']]);
+        }
+
+        $reviewStatus = MetadataReviewStatus::tryFrom((string) $episode->metadata_review_status)
+            ?? MetadataReviewStatus::Pending;
+        $this->applyEpisodeDetails($episode, $details, [
+            'source' => 'tmdb',
+            'confidence' => 1.0,
+            'method' => 'season_catalog',
+        ], $reviewStatus);
+    }
+
+    /**
      * @param  array<string, mixed>  $options
      * @return array{planned:int,searched:int,matched:int,enriched:int,skipped:int,failed:int}
      */
@@ -441,15 +491,16 @@ class MediaMetadataService
      */
     private function applyMovieDetails(Movie $movie, array $details, ?array $match): void
     {
+        $genres = $this->genres($details['genres'] ?? []);
         $movie->forceFill([
             'tmdb_id' => $this->intOrNull($details['id'] ?? null),
-            'imdb_id' => $this->stringOrNull($details['imdb_id'] ?? null),
-            'original_title' => $this->stringOrNull($details['original_title'] ?? null),
-            'overview' => $this->stringOrNull($details['overview'] ?? null),
-            'poster_path' => $this->stringOrNull($details['poster_path'] ?? null),
-            'backdrop_path' => $this->stringOrNull($details['backdrop_path'] ?? null),
-            'release_date' => $this->stringOrNull($details['release_date'] ?? null),
-            'genres' => $this->genres($details['genres'] ?? []),
+            'imdb_id' => $this->stringOrNull($details['imdb_id'] ?? null) ?: $movie->imdb_id,
+            'original_title' => $this->stringOrNull($details['original_title'] ?? null) ?: $movie->original_title,
+            'overview' => $this->stringOrNull($details['overview'] ?? null) ?: $movie->overview,
+            'poster_path' => $this->stringOrNull($details['poster_path'] ?? null) ?: $movie->poster_path,
+            'backdrop_path' => $this->stringOrNull($details['backdrop_path'] ?? null) ?: $movie->backdrop_path,
+            'release_date' => $this->stringOrNull($details['release_date'] ?? null) ?: $movie->release_date,
+            'genres' => $genres !== [] ? $genres : ($movie->genres ?? []),
             'runtime' => $this->runtimeValue($movie->runtime, $details['runtime'] ?? null),
             'status' => $this->stringOrNull($details['status'] ?? null),
             'vote_average' => $this->floatOrNull($details['vote_average'] ?? null),
@@ -465,17 +516,18 @@ class MediaMetadataService
     private function applyShowDetails(Show $show, array $details, ?array $match): void
     {
         $externalIds = is_array($details['external_ids'] ?? null) ? $details['external_ids'] : [];
+        $genres = $this->genres($details['genres'] ?? []);
 
         $show->forceFill([
             'tmdb_id' => $this->intOrNull($details['id'] ?? null),
-            'imdb_id' => $this->stringOrNull($externalIds['imdb_id'] ?? null),
-            'tvdb_id' => $this->stringOrNull($externalIds['tvdb_id'] ?? null),
-            'original_title' => $this->stringOrNull($details['original_name'] ?? null),
-            'overview' => $this->stringOrNull($details['overview'] ?? null),
-            'poster_path' => $this->stringOrNull($details['poster_path'] ?? null),
-            'backdrop_path' => $this->stringOrNull($details['backdrop_path'] ?? null),
-            'first_air_date' => $this->stringOrNull($details['first_air_date'] ?? null),
-            'genres' => $this->genres($details['genres'] ?? []),
+            'imdb_id' => $this->stringOrNull($externalIds['imdb_id'] ?? null) ?: $show->imdb_id,
+            'tvdb_id' => $this->stringOrNull($externalIds['tvdb_id'] ?? null) ?: $show->tvdb_id,
+            'original_title' => $this->stringOrNull($details['original_name'] ?? null) ?: $show->original_title,
+            'overview' => $this->stringOrNull($details['overview'] ?? null) ?: $show->overview,
+            'poster_path' => $this->stringOrNull($details['poster_path'] ?? null) ?: $show->poster_path,
+            'backdrop_path' => $this->stringOrNull($details['backdrop_path'] ?? null) ?: $show->backdrop_path,
+            'first_air_date' => $this->stringOrNull($details['first_air_date'] ?? null) ?: $show->first_air_date,
+            'genres' => $genres !== [] ? $genres : ($show->genres ?? []),
             'runtime' => $this->runtimeValue($show->runtime, $this->firstRuntime($details['episode_run_time'] ?? [])),
             'status' => $this->stringOrNull($details['status'] ?? null),
             'vote_average' => $this->floatOrNull($details['vote_average'] ?? null),
@@ -493,16 +545,16 @@ class MediaMetadataService
         $externalIds = is_array($details['external_ids'] ?? null) ? $details['external_ids'] : [];
 
         $episode->forceFill([
-            'tmdb_id' => $this->intOrNull($details['id'] ?? null),
-            'imdb_id' => $this->stringOrNull($externalIds['imdb_id'] ?? null),
-            'tvdb_id' => $this->stringOrNull($externalIds['tvdb_id'] ?? null),
-            'original_title' => $this->stringOrNull($details['name'] ?? null),
-            'overview' => $this->stringOrNull($details['overview'] ?? null),
-            'poster_path' => $this->stringOrNull($details['still_path'] ?? null),
-            'backdrop_path' => $this->stringOrNull($details['still_path'] ?? null),
+            'tmdb_id' => $this->intOrNull($details['id'] ?? null) ?: $episode->tmdb_id,
+            'imdb_id' => $this->stringOrNull($externalIds['imdb_id'] ?? null) ?: $episode->imdb_id,
+            'tvdb_id' => $this->stringOrNull($externalIds['tvdb_id'] ?? null) ?: $episode->tvdb_id,
+            'original_title' => $this->stringOrNull($details['name'] ?? null) ?: $episode->original_title,
+            'overview' => $this->stringOrNull($details['overview'] ?? null) ?: $episode->overview,
+            'poster_path' => $this->stringOrNull($details['still_path'] ?? null) ?: $episode->poster_path,
+            'backdrop_path' => $this->stringOrNull($details['still_path'] ?? null) ?: $episode->backdrop_path,
             'runtime' => $this->runtimeValue($episode->runtime, $details['runtime'] ?? null),
-            'air_date' => $episode->air_date ?: $this->stringOrNull($details['air_date'] ?? null),
-            'vote_average' => $this->floatOrNull($details['vote_average'] ?? null),
+            'air_date' => $this->stringOrNull($details['air_date'] ?? null) ?: $episode->air_date,
+            'vote_average' => $this->floatOrNull($details['vote_average'] ?? null) ?? $episode->vote_average,
             'metadata' => $this->metadata($episode->metadata ?? [], $match, 'episode'),
             'metadata_refreshed_at' => now(),
             'last_metadata_failure_reason' => null,
@@ -645,12 +697,13 @@ class MediaMetadataService
     private function runtimeValue(mixed $current, mixed $candidate): int
     {
         $currentRuntime = $this->intOrNull($current) ?? 0;
+        $candidateRuntime = $this->intOrNull($candidate) ?? 0;
 
-        if ($currentRuntime > 0) {
-            return $currentRuntime;
+        if ($candidateRuntime > 0) {
+            return $candidateRuntime;
         }
 
-        return max(0, $this->intOrNull($candidate) ?? 0);
+        return max(0, $currentRuntime);
     }
 
     private function intOrNull(mixed $value): ?int

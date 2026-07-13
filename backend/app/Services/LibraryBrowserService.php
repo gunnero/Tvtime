@@ -121,8 +121,9 @@ class LibraryBrowserService
             ->whereIn('show_id', $shows->pluck('id'))
             ->where('season_number', '>', 0)
             ->where('episode_number', '>', 0)
-            ->whereNotNull('air_date')
-            ->whereDate('air_date', '<=', $today)
+            ->where(function (Builder $query) use ($today): void {
+                $query->whereNull('air_date')->orWhereDate('air_date', '<=', $today);
+            })
             ->whereNotExists(fn ($query) => $query
                 ->selectRaw('1')
                 ->from('episode_watches')
@@ -467,7 +468,7 @@ class LibraryBrowserService
     private function movieHistoryQuery(User $user, array $filters): QueryBuilder
     {
         $query = DB::table('movie_watches')
-            ->leftJoin('movies', function ($join) use ($user): void {
+            ->join('movies', function ($join) use ($user): void {
                 $join->on('movie_watches.movie_id', '=', 'movies.id')
                     ->where('movies.user_id', $user->id);
             })
@@ -511,11 +512,11 @@ class LibraryBrowserService
     private function episodeHistoryQuery(User $user, array $filters): QueryBuilder
     {
         $query = DB::table('episode_watches')
-            ->leftJoin('episodes', function ($join) use ($user): void {
+            ->join('episodes', function ($join) use ($user): void {
                 $join->on('episode_watches.episode_id', '=', 'episodes.id')
                     ->where('episodes.user_id', $user->id);
             })
-            ->leftJoin('shows', function ($join) use ($user): void {
+            ->join('shows', function ($join) use ($user): void {
                 $join->on('episode_watches.show_id', '=', 'shows.id')
                     ->where('shows.user_id', $user->id);
             })

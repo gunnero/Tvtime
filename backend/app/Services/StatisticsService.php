@@ -17,15 +17,17 @@ class StatisticsService
     {
         $movieWatches = MovieWatch::forUser($user)
             ->whereHas('movie', fn ($query) => $query->forUser($user))
-            ->with(['movie' => fn ($query) => $query->forUser($user)])
-            ->watched()->get();
+            ->with(['movie' => fn ($query) => $query->forUser($user)->select(['id', 'user_id', 'title', 'genres'])])
+            ->watched()
+            ->get(['id', 'user_id', 'movie_id', 'watched_at', 'runtime', 'watch_count']);
         $episodeWatches = EpisodeWatch::forUser($user)
             ->whereHas('episode', fn ($query) => $query->forUser($user))
             ->whereHas('show', fn ($query) => $query->forUser($user))
             ->with([
-                'episode' => fn ($query) => $query->forUser($user),
-                'show' => fn ($query) => $query->forUser($user),
-            ])->watched()->get();
+                'episode' => fn ($query) => $query->forUser($user)->select(['id', 'user_id', 'show_id']),
+                'show' => fn ($query) => $query->forUser($user)->select(['id', 'user_id', 'title', 'genres']),
+            ])->watched()
+            ->get(['id', 'user_id', 'show_id', 'episode_id', 'watched_at', 'runtime']);
         $movieWatchEvents = (int) $movieWatches->sum(fn (MovieWatch $watch): int => max(1, $watch->watch_count));
         $episodeWatchEvents = $episodeWatches->count();
         $allWatches = $movieWatches->map(fn (MovieWatch $watch): array => $this->watchPoint(

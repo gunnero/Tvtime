@@ -17,7 +17,7 @@ import {
 import { SessionExpiredError } from "../lib/api.js";
 
 const generatedPosterPattern = /\/assets\/generated\/movie-poster-\d+\.png(?:[?#].*)?$/;
-const meaningfulDiaryPrefixes = ["movie.watched", "episode.watched", "rating.", "note."];
+const meaningfulDiaryPrefixes = ["movie.watched", "episode.watched", "rating.", "note.", "movie.imported", "show.imported", "episode.imported"];
 
 function usableArtwork(value) {
   if (typeof value !== "string" || value.trim() === "") return "";

@@ -34,10 +34,54 @@ class MediaEventService
         array $metadata = [],
         MediaEventSource|string $source = MediaEventSource::System,
     ): ?MediaEvent {
+        return $this->recordAt($user, $eventType, $subject, $metadata, $source, now());
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    public function recordHistorical(
+        User $user,
+        MediaEventType|string $eventType,
+        ?Model $subject,
+        array $metadata,
+        MediaEventSource|string $source,
+        CarbonInterface $occurredAt,
+        string $dedupeKey,
+    ): ?MediaEvent {
+        return $this->recordAt($user, $eventType, $subject, [
+            ...$metadata,
+            'backfill_key' => $dedupeKey,
+            'backfilled' => true,
+        ], $source, $occurredAt, $dedupeKey);
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private function recordAt(
+        User $user,
+        MediaEventType|string $eventType,
+        ?Model $subject,
+        array $metadata,
+        MediaEventSource|string $source,
+        CarbonInterface $occurredAt,
+        ?string $dedupeKey = null,
+    ): ?MediaEvent {
         $eventType = $eventType instanceof MediaEventType ? $eventType->value : $eventType;
         $source = $source instanceof MediaEventSource ? $source->value : $source;
 
         try {
+            if ($dedupeKey) {
+                $existing = MediaEvent::forUser($user)
+                    ->where('metadata->backfill_key', $dedupeKey)
+                    ->first();
+
+                if ($existing) {
+                    return $existing;
+                }
+            }
+
             return MediaEvent::create([
                 'user_id' => $user->id,
                 'event_type' => $eventType,
@@ -45,7 +89,7 @@ class MediaEventService
                 'subject_id' => $subject?->getKey(),
                 'actor_type' => User::class,
                 'actor_id' => $user->id,
-                'occurred_at' => now(),
+                'occurred_at' => $occurredAt,
                 'source' => $source,
                 'metadata' => $this->sanitizeMetadata($metadata),
             ]);
@@ -92,16 +136,39 @@ class MediaEventService
     {
         $todayStart = now()->startOfDay();
         $weekStart = now()->startOfDay()->subDays(6);
+        $recent = $this->meaningfulQuery($user)
+            ->latest('occurred_at')
+            ->latest('id')
+            ->limit(12)
+            ->get()
+            ->map(fn (MediaEvent $event): array => $this->payload($event))
+            ->values()
+            ->all();
 
         return [
-            'recent' => $this->recent($user, 12),
+            'recent' => $recent,
             'todaySummary' => [
-                'total' => $this->query($user, [])->where('occurred_at', '>=', $todayStart)->count(),
+                'total' => $this->meaningfulQuery($user)->where('occurred_at', '>=', $todayStart)->count(),
             ],
             'thisWeekSummary' => [
-                'total' => $this->query($user, [])->where('occurred_at', '>=', $weekStart)->count(),
+                'total' => $this->meaningfulQuery($user)->where('occurred_at', '>=', $weekStart)->count(),
             ],
         ];
+    }
+
+    private function meaningfulQuery(User $user): Builder
+    {
+        return MediaEvent::forUser($user)->whereIn('event_type', [
+            MediaEventType::MovieWatched->value,
+            MediaEventType::EpisodeWatched->value,
+            MediaEventType::RatingCreated->value,
+            MediaEventType::RatingUpdated->value,
+            MediaEventType::NoteCreated->value,
+            MediaEventType::NoteUpdated->value,
+            MediaEventType::MovieImported->value,
+            MediaEventType::ShowImported->value,
+            MediaEventType::EpisodeImported->value,
+        ]);
     }
 
     /**

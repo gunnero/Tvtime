@@ -20,22 +20,29 @@ class MediaLibraryService
      */
     public function statsFor(User $user): array
     {
-        $episodeMinutes = (int) EpisodeWatch::forUser($user)->sum('runtime');
-        $movieMinutes = (int) MovieWatch::forUser($user)->get(['runtime', 'watch_count'])
+        $ownedEpisodeWatches = fn () => EpisodeWatch::forUser($user)
+            ->whereNotNull('watched_at')
+            ->whereHas('episode', fn (Builder $query) => $query->forUser($user))
+            ->whereHas('show', fn (Builder $query) => $query->forUser($user));
+        $ownedMovieWatches = fn () => MovieWatch::forUser($user)
+            ->whereNotNull('watched_at')
+            ->whereHas('movie', fn (Builder $query) => $query->forUser($user));
+        $episodeMinutes = (int) $ownedEpisodeWatches()->sum('runtime');
+        $movieMinutes = (int) $ownedMovieWatches()->get(['runtime', 'watch_count'])
             ->sum(fn (MovieWatch $watch): int => $watch->runtime * max(1, $watch->watch_count));
-        $movieWatchEvents = (int) MovieWatch::forUser($user)->get(['watch_count'])
+        $movieWatchEvents = (int) $ownedMovieWatches()->get(['watch_count'])
             ->sum(fn (MovieWatch $watch): int => max(1, $watch->watch_count));
-        $manualMovieWatches = (int) MovieWatch::forUser($user)->where('source', 'manual')->get(['watch_count'])
+        $manualMovieWatches = (int) $ownedMovieWatches()->where('source', 'manual')->get(['watch_count'])
             ->sum(fn (MovieWatch $watch): int => max(1, $watch->watch_count));
-        $autoMovieWatches = (int) MovieWatch::forUser($user)->where('source', 'provider')->get(['watch_count'])
+        $autoMovieWatches = (int) $ownedMovieWatches()->where('source', 'provider')->get(['watch_count'])
             ->sum(fn (MovieWatch $watch): int => max(1, $watch->watch_count));
         $manualWatchesCount = $manualMovieWatches
-            + EpisodeWatch::forUser($user)->where('source', 'manual')->count();
+            + $ownedEpisodeWatches()->where('source', 'manual')->count();
         $autoTrackedWatchesCount = $autoMovieWatches
-            + EpisodeWatch::forUser($user)->where('source', 'provider')->count();
+            + $ownedEpisodeWatches()->where('source', 'provider')->count();
 
         return [
-            'episodesWatched' => EpisodeWatch::forUser($user)->count(),
+            'episodesWatched' => $ownedEpisodeWatches()->count(),
             'moviesWatched' => $movieWatchEvents,
             'hoursWatched' => (int) round(($episodeMinutes + $movieMinutes) / 60),
             'showsFollowed' => Show::forUser($user)->followed()->count(),

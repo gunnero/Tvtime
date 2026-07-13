@@ -96,7 +96,8 @@ class AlertService
             $scheduledEpisodeKeys = collect();
             Episode::forUser($user)
                 ->with('show')
-                ->whereBetween('air_date', [$today->copy()->subDay(), $today->copy()->addDays(14)])
+                ->whereDate('air_date', '>=', $today->copy()->subDay()->toDateString())
+                ->whereDate('air_date', '<=', $today->copy()->addDays(14)->toDateString())
                 ->whereHas('show', fn ($query) => $query->forUser($user)->followed())
                 ->orderBy('air_date')
                 ->limit(50)
@@ -160,7 +161,8 @@ class AlertService
         if ($preferences->movie_releases) {
             Movie::forUser($user)
                 ->toWatch()
-                ->whereBetween('release_date', [$today->copy()->subDay(), $today->copy()->addDays(30)])
+                ->whereDate('release_date', '>=', $today->copy()->subDay()->toDateString())
+                ->whereDate('release_date', '<=', $today->copy()->addDays(30)->toDateString())
                 ->orderBy('release_date')
                 ->limit(50)
                 ->get()
