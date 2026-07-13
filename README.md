@@ -1,5 +1,7 @@
 # MediaHub
 
+[![CI](https://github.com/gunnero/mediahub/actions/workflows/ci.yml/badge.svg)](https://github.com/gunnero/mediahub/actions/workflows/ci.yml)
+
 **Status:** Active development · source-visible · pre-public-launch
 
 MediaHub is a movie and television tracking platform built around user-owned history. It combines a React product interface with a Laravel API for discovery, diary entries, collections, recommendations, statistics, and privacy-aware social features.
@@ -103,7 +105,7 @@ Please follow [SECURITY.md](SECURITY.md). Do not disclose vulnerabilities, crede
 
 ## Roadmap
 
-Near-term priorities are product coherence, trustworthy import status, stronger accessibility coverage, deterministic demo fixtures, and a reviewed repository rename to `gunnero/mediahub`.
+Near-term priorities are product coherence, trustworthy import status, stronger accessibility coverage, and deterministic demo fixtures.
 
 ## License status
 

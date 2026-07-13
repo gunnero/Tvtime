@@ -2,7 +2,9 @@
 
 Recommended final repository: `gunnero/mediahub`
 
-This is a preparation plan only. It does not authorize or perform a GitHub rename.
+Status: completed on July 13, 2026. The canonical repository is [gunnero/mediahub](https://github.com/gunnero/mediahub); the former URL redirects to it.
+
+This document was the pre-rename preparation plan. The rename was authorized and completed separately after the inventory and merge gates passed.
 
 ## Impact
 

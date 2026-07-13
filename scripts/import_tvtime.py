@@ -168,7 +168,7 @@ def cache_remote_images(payload, cache_dir):
         local_path = cache_dir / name
         if not local_path.exists():
             try:
-                request = Request(url, headers={"User-Agent": "tvtime-local-dashboard/1.0"})
+                request = Request(url, headers={"User-Agent": "mediahub-importer/1.0"})
                 with urlopen(request, timeout=12) as response:
                     local_path.write_bytes(response.read())
             except Exception:
