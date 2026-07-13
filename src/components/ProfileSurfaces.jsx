@@ -48,11 +48,47 @@ const publicStatLabels = {
 };
 
 function Avatar({ profile, size = "large" }) {
-  if (profile?.avatar) {
-    return <img className={`social-avatar ${size}`} alt="" src={profile.avatar} />;
+  const [failedSource, setFailedSource] = useState("");
+  const source = profile?.avatar || "";
+
+  if (source && source !== failedSource) {
+    return <img className={`social-avatar ${size}`} alt="" onError={() => setFailedSource(source)} src={source} />;
   }
 
   return <span className={`social-avatar fallback ${size}`}><UserCircle weight="duotone" /></span>;
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the local selection-based copy path.
+  }
+
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  let copied = false;
+  try {
+    copied = typeof document.execCommand === "function" && document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    field.remove();
+  }
+
+  return copied;
+}
+
+function ShareFallback({ url }) {
+  return url ? <label className="share-fallback"><span>Profile link</span><input aria-label="Profile link fallback" onFocus={(event) => event.target.select()} readOnly value={url} /></label> : null;
 }
 
 function loadFailure(error, fallback) {
@@ -158,6 +194,7 @@ export function OwnProfileSection({ apiClient = apiRequest, editInitially = fals
   const [avatarProgress, setAvatarProgress] = useState(0);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  const [shareFallback, setShareFallback] = useState("");
 
   async function load() {
     setState((current) => ({ ...current, loading: true, error: "" }));
@@ -281,11 +318,26 @@ export function OwnProfileSection({ apiClient = apiRequest, editInitially = fals
 
   async function copyProfileLink() {
     if (!state.profile?.shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(state.profile.shareUrl);
+    const copied = await copyText(state.profile.shareUrl);
+    if (copied) {
+      setShareFallback("");
       setStatus("Profile link copied.");
-    } catch {
-      setStatus("Profile link could not be copied.");
+    } else {
+      setShareFallback(state.profile.shareUrl);
+      setStatus("Select the profile link below to copy it.");
+    }
+  }
+
+  async function shareProfileLink() {
+    if (!state.profile?.shareUrl || typeof navigator.share !== "function") return;
+    try {
+      await navigator.share({ title: `${profileName(state)} on MediaHub`, url: state.profile.shareUrl });
+      setShareFallback("");
+      setStatus("Profile shared.");
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      setShareFallback(state.profile.shareUrl);
+      setStatus("Sharing is unavailable. Select the profile link below instead.");
     }
   }
 
@@ -296,7 +348,7 @@ export function OwnProfileSection({ apiClient = apiRequest, editInitially = fals
   return <section className="web-v1-screen social-screen profile-screen">
     <header className="screen-intro"><span className="eyebrow">Your identity</span><h2>Profile</h2><p>Choose the identity people can see. Your email and private media data are never public.</p></header>
     {state.error ? <div className="detail-error">{state.error}</div> : null}{status ? <div className="settings-status">{status}</div> : null}
-    {!editing ? <div className="profile-overview"><Avatar profile={profile} /><div><h3>{profile.displayName}</h3><span>@{profile.username}</span>{profile.fullName ? <small>{profile.fullName}</small> : null}<p>{profile.bio || "Add a short bio when you are ready."}</p><div className="profile-actions"><button className="primary-action" onClick={() => setEditing(true)} type="button"><PencilSimple /> Edit profile</button><a className="secondary-action" href={`/u/${profile.slug}?preview=public`}>View profile as public</a>{state.privacy?.publicProfileEnabled && state.privacy?.allowProfileSharing ? <button className="text-action" onClick={copyProfileLink} type="button"><Copy /> Copy profile link</button> : null}<button className="text-action" onClick={onOpenPrivacy} type="button"><ShieldCheck /> Privacy</button></div></div></div> : <form className="profile-form" onSubmit={save}>
+    {!editing ? <><div className="profile-overview"><Avatar profile={profile} /><div><h3>{profile.displayName}</h3><span>@{profile.username}</span>{profile.fullName ? <small>{profile.fullName}</small> : null}<p>{profile.bio || "Add a short bio when you are ready."}</p><div className="profile-actions"><button className="primary-action" onClick={() => setEditing(true)} type="button"><PencilSimple /> Edit profile</button><a className="secondary-action" href={`/u/${profile.slug}?preview=public`}>View profile as public</a>{state.privacy?.publicProfileEnabled && state.privacy?.allowProfileSharing ? <button className="text-action" onClick={copyProfileLink} type="button"><Copy /> Copy profile link</button> : null}{state.privacy?.publicProfileEnabled && state.privacy?.allowProfileSharing && typeof navigator.share === "function" ? <button className="text-action" onClick={shareProfileLink} type="button"><ShareNetwork /> Share profile</button> : null}<button className="text-action" onClick={onOpenPrivacy} type="button"><ShieldCheck /> Privacy</button></div></div></div><ShareFallback url={shareFallback} /></> : <form className="profile-form" onSubmit={save}>
       <AvatarEditor busy={avatarBusy} current={profile.avatar} error={avatarError} file={avatarFile} onChoose={chooseAvatar} onRemove={removeAvatar} onUpload={uploadAvatar} preview={avatarPreview} progress={avatarProgress} />
       <div className="profile-form-grid"><label><span>Display name</span><input aria-label="Display name" maxLength="80" onChange={(event) => setForm((current) => ({ ...current, display_name: event.target.value }))} value={form.display_name} /></label><label><span>Username</span><input aria-label="Username" maxLength="40" onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} value={form.username} /></label><label><span>Full name</span><input aria-label="Full name" maxLength="120" onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} value={form.full_name} /></label><label><span>Email</span><input aria-label="Email" readOnly type="email" value={profile.email || ""} /></label><label><span>Profile address</span><input aria-label="Profile address" maxLength="60" onChange={(event) => setForm((current) => ({ ...current, profile_slug: event.target.value.toLowerCase() }))} value={form.profile_slug} /></label><CountryPicker onChange={(country) => setForm((current) => ({ ...current, country }))} value={form.country} /><label><span>Profile visibility</span><select aria-label="Profile visibility" onChange={(event) => setForm((current) => ({ ...current, profile_visibility: event.target.value }))} value={form.profile_visibility}><option value="private">Private</option><option value="friends">Friends only</option><option value="public">Public</option></select></label><label className="profile-checkbox"><span>Public profile</span><input checked={form.public_profile_enabled} onChange={(event) => setForm((current) => ({ ...current, public_profile_enabled: event.target.checked }))} type="checkbox" /></label><label className="profile-checkbox"><span>Allow avatar on visible profile</span><input checked={form.show_avatar} onChange={(event) => setForm((current) => ({ ...current, show_avatar: event.target.checked }))} type="checkbox" /></label></div>
       <label><span>Bio</span><textarea aria-label="Bio" maxLength="500" onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))} value={form.bio} /></label>
@@ -462,6 +514,7 @@ export function InviteFriendsSection({ apiClient = apiRequest, onSessionExpired 
 export function PublicProfilePage({ apiClient = apiRequest, preview = false, slug }) {
   const [data, setData] = useState(null);
   const [state, setState] = useState({ loading: true, error: "", status: "" });
+  const [shareFallback, setShareFallback] = useState("");
   useEffect(() => {
     let cancelled = false;
     const path = preview ? "/api/v1/profile/public-preview" : `/api/v1/profiles/${encodeURIComponent(slug)}`;
@@ -472,14 +525,34 @@ export function PublicProfilePage({ apiClient = apiRequest, preview = false, slu
     try { await apiClient(`/api/v1/friends/request/${encodeURIComponent(slug)}`, { method: "POST" }); setState((value) => ({ ...value, status: "Request sent", error: "" })); setData((value) => ({ ...value, relationship: { status: "pending_outgoing", canRequest: false } })); }
     catch (error) { setState((value) => ({ ...value, error: loadFailure(error, "Friend request failed.") })); }
   }
-  async function copy() { if (data?.shareUrl) { await navigator.clipboard.writeText(data.shareUrl); setState((value) => ({ ...value, status: "Profile link copied" })); } }
-  async function share() { if (data?.shareUrl && navigator.share) await navigator.share({ title: `${profileName(data)} on MediaHub`, url: data.shareUrl }); }
+  async function copy() {
+    if (!data?.shareUrl) return;
+    if (await copyText(data.shareUrl)) {
+      setShareFallback("");
+      setState((value) => ({ ...value, status: "Profile link copied" }));
+    } else {
+      setShareFallback(data.shareUrl);
+      setState((value) => ({ ...value, status: "Select the profile link below to copy it" }));
+    }
+  }
+  async function share() {
+    if (!data?.shareUrl || typeof navigator.share !== "function") return;
+    try {
+      await navigator.share({ title: `${profileName(data)} on MediaHub`, url: data.shareUrl });
+      setShareFallback("");
+      setState((value) => ({ ...value, status: "Profile shared" }));
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      setShareFallback(data.shareUrl);
+      setState((value) => ({ ...value, status: "Sharing is unavailable. Select the profile link below instead" }));
+    }
+  }
 
   if (state.loading) return <PublicShell><div className="empty-strip compact">Loading profile...</div></PublicShell>;
   if (state.error && !data) return <PublicShell><div className="detail-error">{state.error}</div></PublicShell>;
   const profile = data?.profile || {};
   const content = data?.content || {};
-  return <PublicShell><main className="public-profile"><section className="public-profile-identity"><Avatar profile={profile} /><div><span className="eyebrow">MediaHub profile</span><h1>{profile.displayName}</h1><strong>@{profile.username}</strong>{!profile.isPrivate ? <><p>{profile.bio || "No public bio yet."}</p>{profile.memberSince ? <small>Member since {new Date(profile.memberSince).toLocaleDateString()}</small> : null}</> : null}</div><div className="profile-actions">{data.relationship?.canRequest ? <button className="primary-action" onClick={requestFriend} type="button">Add friend</button> : null}{data.relationship?.status === "pending_outgoing" || state.status === "Request sent" ? <span className="status-chip"><Check /> Request sent</span> : null}{profile.canShare && data.shareUrl ? <button className="secondary-action" onClick={copy} type="button"><Copy /> Copy link</button> : null}{profile.canShare && data.shareUrl && navigator.share ? <button className="text-action" onClick={share} type="button"><ShareNetwork /> Share</button> : null}</div></section>{state.error ? <div className="detail-error">{state.error}</div> : null}{state.status && state.status !== "Request sent" ? <div className="settings-status">{state.status}</div> : null}{profile.isPrivate ? <section className="private-profile-state"><ShieldCheck weight="duotone" /><h2>This profile is private</h2><p>Only the member can choose what becomes visible.</p></section> : <PublicContent content={content} profile={profile} />}</main></PublicShell>;
+  return <PublicShell><main className="public-profile"><section className="public-profile-identity"><Avatar profile={profile} /><div><span className="eyebrow">MediaHub profile</span><h1>{profile.displayName}</h1><strong>@{profile.username}</strong>{!profile.isPrivate ? <><p>{profile.bio || "No public bio yet."}</p>{profile.memberSince ? <small>Member since {new Date(profile.memberSince).toLocaleDateString()}</small> : null}</> : null}</div><div className="profile-actions">{data.relationship?.canRequest ? <button className="primary-action" onClick={requestFriend} type="button">Add friend</button> : null}{data.relationship?.status === "pending_outgoing" || state.status === "Request sent" ? <span className="status-chip"><Check /> Request sent</span> : null}{profile.canShare && data.shareUrl ? <button className="secondary-action" onClick={copy} type="button"><Copy /> Copy profile link</button> : null}{profile.canShare && data.shareUrl && typeof navigator.share === "function" ? <button className="text-action" onClick={share} type="button"><ShareNetwork /> Share profile</button> : null}</div></section>{state.error ? <div className="detail-error">{state.error}</div> : null}{state.status && state.status !== "Request sent" ? <div className="settings-status">{state.status}</div> : null}<ShareFallback url={shareFallback} />{profile.isPrivate ? <section className="private-profile-state"><ShieldCheck weight="duotone" /><h2>This profile is private</h2><p>Only the member can choose what becomes visible.</p></section> : <PublicContent content={content} profile={profile} />}</main></PublicShell>;
 }
 
 function profileName(data) {
@@ -506,7 +579,7 @@ export function FriendInviteLandingPage({ apiClient = apiRequest, token }) {
     let cancelled = false;
     Promise.all([
       apiClient(`/api/v1/friend-invites/${encodeURIComponent(token)}`),
-      apiClient("/api/v1/me").then(() => true).catch(() => false),
+      apiClient("/api/v1/auth/session").then((session) => Boolean(session.authenticated)).catch(() => false),
     ]).then(([payload, signedIn]) => { if (!cancelled) { setInvite(payload.invite); setAuthenticated(signedIn); setState({ loading: false, error: "", status: "" }); } }).catch((error) => { if (!cancelled) setState({ loading: false, error: loadFailure(error, "Invitation is unavailable."), status: "" }); });
     return () => { cancelled = true; };
   }, [apiClient, token]);

@@ -20,9 +20,10 @@ class ProfileAvatarController extends Controller
             ],
         ]);
 
-        $avatars->store($request->user(), $data['avatar']);
+        $user = $profiles->ensureProfile($request->user());
+        $avatars->store($user, $data['avatar']);
 
-        return response()->json($profiles->ownPayload($request->user()->refresh()), 201);
+        return response()->json($profiles->ownPayload($user->refresh()), 201);
     }
 
     public function destroy(Request $request, UserAvatarService $avatars, UserProfileService $profiles): JsonResponse

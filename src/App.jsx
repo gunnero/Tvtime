@@ -1621,7 +1621,15 @@ export function App() {
 
     async function loadAuthenticatedDashboard() {
       try {
-        const me = await apiRequest("/api/v1/me");
+        const session = await apiRequest("/api/v1/auth/session");
+        if (!session.authenticated) {
+          if (!cancelled) {
+            setAuthUser(null);
+            setAppState("login");
+            setLoadState("guest");
+          }
+          return;
+        }
         const payload = await apiRequest("/api/v1/dashboard");
 
         if (cancelled) {
@@ -1633,7 +1641,7 @@ export function App() {
           return;
         }
 
-        setAuthUser(me.user);
+        setAuthUser(session.user);
         setDashboard(payload);
         setAppState("ready");
         setLoadState("ready");
@@ -1676,10 +1684,11 @@ export function App() {
     stats.showsFollowed === 0;
 
   async function loadDashboardAfterLogin() {
-    const me = await apiRequest("/api/v1/me");
+    const session = await apiRequest("/api/v1/auth/session");
+    if (!session.authenticated) throw new SessionExpiredError();
     const payload = await apiRequest("/api/v1/dashboard");
 
-    setAuthUser(me.user);
+    setAuthUser(session.user);
     setDashboard(payload);
     setReadAlerts(new Set());
     setAppState("ready");

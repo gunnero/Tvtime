@@ -114,6 +114,20 @@ class BackendFoundationTest extends TestCase
         $this->postJson('/api/v1/alerts/read-all')->assertUnauthorized();
     }
 
+    public function test_public_session_probe_is_deliberate_without_weakening_private_me_endpoint(): void
+    {
+        $this->getJson('/api/v1/auth/session')
+            ->assertOk()
+            ->assertJson(['authenticated' => false, 'user' => null]);
+        $this->getJson('/api/v1/me')->assertUnauthorized();
+
+        $user = User::factory()->create();
+        $this->actingAs($user)->getJson('/api/v1/auth/session')
+            ->assertOk()
+            ->assertJsonPath('authenticated', true)
+            ->assertJsonPath('user.email', $user->email);
+    }
+
     public function test_dashboard_returns_empty_payload_for_authenticated_new_user(): void
     {
         $user = User::factory()->create([

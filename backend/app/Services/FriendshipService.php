@@ -161,7 +161,7 @@ class FriendshipService
         return [
             'friends' => $friendships->map(fn (Friendship $friendship): array => [
                 'friendshipId' => $friendship->id,
-                'profile' => $this->profiles->publicIdentity($friendship->otherUser($user)),
+                'profile' => $this->profiles->publicIdentity($friendship->otherUser($user), $user),
                 'acceptedAt' => $friendship->accepted_at?->toIso8601String(),
             ])->values()->all(),
         ];
@@ -186,12 +186,12 @@ class FriendshipService
         return [
             'incoming' => $incoming->map(fn (Friendship $friendship): array => [
                 'friendshipId' => $friendship->id,
-                'profile' => $this->profiles->publicIdentity($friendship->requester),
+                'profile' => $this->profiles->publicIdentity($friendship->requester, $user),
                 'createdAt' => $friendship->created_at?->toIso8601String(),
             ])->values()->all(),
             'outgoing' => $outgoing->map(fn (Friendship $friendship): array => [
                 'friendshipId' => $friendship->id,
-                'profile' => $this->profiles->publicIdentity($friendship->addressee),
+                'profile' => $this->profiles->publicIdentity($friendship->addressee, $user),
                 'createdAt' => $friendship->created_at?->toIso8601String(),
             ])->values()->all(),
         ];
@@ -206,7 +206,7 @@ class FriendshipService
             'id' => $friendship->id,
             'status' => $friendship->status->value,
             'direction' => $friendship->requester_user_id === $viewer->id ? 'outgoing' : 'incoming',
-            'profile' => $this->profiles->publicIdentity($friendship->otherUser($viewer)),
+            'profile' => $this->profiles->publicIdentity($friendship->otherUser($viewer), $viewer),
         ];
     }
 

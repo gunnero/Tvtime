@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\MediaEventController;
 use App\Http\Controllers\Api\V1\MediaListController;
 use App\Http\Controllers\Api\V1\PlayerController;
 use App\Http\Controllers\Api\V1\ProfileAvatarController;
+use App\Http\Controllers\Api\V1\ProfileAvatarDisplayController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\ProviderController;
 use App\Http\Controllers\Api\V1\SettingsController;
@@ -24,8 +25,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('web')->group(function (): void {
     Route::get('/status', StatusController::class);
+    Route::get('/auth/session', [AuthController::class, 'session']);
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/invites/accept', InviteAcceptanceController::class);
+    Route::get('/profiles/{user:profile_slug}/avatar/{size}', ProfileAvatarDisplayController::class)
+        ->where('size', '32|64|128|512')
+        ->middleware('throttle:120,1,profile-avatar-display')
+        ->name('profiles.avatar');
     Route::get('/profiles/search', [ProfileController::class, 'search'])->middleware(['auth', 'throttle:30,1,profile-search']);
     Route::get('/profiles/{user:profile_slug}', [ProfileController::class, 'show'])->middleware('throttle:60,1,profile-show');
     Route::get('/friend-invites/{token}', [FriendInviteController::class, 'show'])->middleware('throttle:30,1,friend-invite-show');

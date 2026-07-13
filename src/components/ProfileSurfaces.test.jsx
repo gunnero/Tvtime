@@ -19,6 +19,7 @@ beforeEach(() => {
     configurable: true,
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
   });
+  Object.defineProperty(navigator, "share", { configurable: true, value: undefined });
 });
 
 describe("AccountMenu", () => {
@@ -81,6 +82,8 @@ describe("PublicProfilePage", () => {
     expect(screen.queryByText("Never render this")).not.toBeInTheDocument();
     expect(screen.queryByText("Private title")).not.toBeInTheDocument();
     expect(screen.queryByText(/email/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy profile link" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share profile" })).not.toBeInTheDocument();
   });
 
   it("renders enabled public fields and sends a friend request by slug", async () => {
@@ -117,13 +120,35 @@ describe("PublicProfilePage", () => {
       { method: "POST" },
     ));
     expect(await screen.findByText("Request sent")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy profile link" }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.test/u/public-member");
+  });
+
+  it("uses Web Share when available and exposes a selectable fallback when sharing fails", async () => {
+    const share = vi.fn().mockRejectedValue(new Error("Unavailable"));
+    Object.defineProperty(navigator, "share", { configurable: true, value: share });
+    const apiClient = vi.fn().mockResolvedValue({
+      profile: { slug: "public-member", username: "public_member", displayName: "Public Member", isPrivate: false, contentVisible: true, canShare: true },
+      content: {},
+      relationship: { status: "guest", canRequest: false },
+      shareUrl: "https://example.test/u/public-member",
+    });
+
+    render(<PublicProfilePage apiClient={apiClient} slug="public-member" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Share profile" }));
+
+    await waitFor(() => expect(share).toHaveBeenCalledWith({
+      title: "Public Member on MediaHub",
+      url: "https://example.test/u/public-member",
+    }));
+    expect(await screen.findByLabelText("Profile link fallback")).toHaveValue("https://example.test/u/public-member");
   });
 });
 
 describe("OwnProfileSection", () => {
   it("edits identity and selects only supplied favorite options", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", { configurable: true, value: share });
     const onOpenPrivacy = vi.fn();
     const apiClient = vi.fn(async (path, options = {}) => {
       if (path === "/api/v1/profile/options") return {
@@ -163,8 +188,26 @@ describe("OwnProfileSection", () => {
     rerender(<OwnProfileSection apiClient={apiClient} onOpenPrivacy={onOpenPrivacy} />);
     fireEvent.click(await screen.findByRole("button", { name: "Copy profile link" }));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://example.test/u/gunner");
+    fireEvent.click(screen.getByRole("button", { name: "Share profile" }));
+    expect(share).toHaveBeenCalledWith({ title: "Gunner on MediaHub", url: "https://example.test/u/gunner" });
     fireEvent.click(screen.getByRole("button", { name: "Privacy" }));
     expect(onOpenPrivacy).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a selectable stable URL when clipboard copying is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("Denied")) } });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+    const apiClient = vi.fn(async (path) => {
+      if (path === "/api/v1/profile/options") return { movies: [], shows: [], publicLists: [] };
+      return {
+        profile: { username: "gunner", displayName: "Gunner", slug: "gunner", shareUrl: "https://example.test/u/gunner" },
+        privacy: { publicProfileEnabled: true, allowProfileSharing: true },
+      };
+    });
+
+    render(<OwnProfileSection apiClient={apiClient} onOpenPrivacy={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Copy profile link" }));
+    expect(await screen.findByLabelText("Profile link fallback")).toHaveValue("https://example.test/u/gunner");
   });
 
   it("edits full profile fields and previews/uploads a responsive avatar", async () => {
@@ -212,6 +255,23 @@ describe("OwnProfileSection", () => {
       expect.any(FormData),
       expect.any(Function),
     ));
+  });
+
+  it("falls back to the default avatar when delivery fails", async () => {
+    const apiClient = vi.fn(async (path) => {
+      if (path === "/api/v1/profile/options") return { movies: [], shows: [], publicLists: [] };
+      return {
+        profile: { username: "gunner", displayName: "Gunner", slug: "gunner", avatar: "/api/v1/profiles/gunner/avatar/512?v=test" },
+        privacy: { publicProfileEnabled: false, allowProfileSharing: false },
+      };
+    });
+
+    const { container } = render(<OwnProfileSection apiClient={apiClient} onOpenPrivacy={vi.fn()} />);
+    await screen.findByText("Gunner");
+    const avatar = container.querySelector("img.social-avatar");
+    expect(avatar).not.toBeNull();
+    fireEvent.error(avatar);
+    expect(container.querySelector(".social-avatar.fallback")).toBeInTheDocument();
   });
 });
 
@@ -291,7 +351,7 @@ describe("InviteFriendsSection", () => {
 describe("FriendInviteLandingPage", () => {
   it("creates no relationship until the signed-in recipient explicitly accepts", async () => {
     const apiClient = vi.fn(async (path, options = {}) => {
-      if (path === "/api/v1/me") return { user: { name: "Recipient" } };
+      if (path === "/api/v1/auth/session") return { authenticated: true, user: { name: "Recipient" } };
       if (path.endsWith("/accept") && options.method === "POST") return { status: "accepted" };
       return { invite: { inviter: { displayName: "Inviter" }, status: "opened" } };
     });
@@ -308,7 +368,7 @@ describe("FriendInviteLandingPage", () => {
 
   it("preserves the invitation when an unauthenticated recipient signs in", async () => {
     const apiClient = vi.fn(async (path) => {
-      if (path === "/api/v1/me") throw new Error("Unauthenticated");
+      if (path === "/api/v1/auth/session") return { authenticated: false, user: null };
       return { invite: { inviter: { displayName: "Inviter" }, status: "opened" } };
     });
 

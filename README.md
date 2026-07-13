@@ -41,7 +41,7 @@ Public profile responses use a strict allowlist. Email, private notes, ratings, 
 
 See `docs/mediahub/PROFILES_AND_FRIENDS_SPEC.md`.
 
-Profile editing now also supports full name, a searchable ISO country selector, and a private user avatar pipeline. Avatar uploads accept JPEG, PNG, or WebP up to 5 MB, are decoded and re-encoded to strip embedded metadata, and generate square 512, 128, 64, and 32 pixel variants under ignored user-upload storage. Public profile output includes an avatar only when the profile visibility rules allow access and the user has explicitly enabled avatar publication.
+Profile editing now also supports full name, a searchable ISO country selector, and a private user avatar pipeline. Avatar uploads accept JPEG, PNG, or WebP up to 5 MB, are decoded and re-encoded to strip embedded metadata, and generate square 512, 128, 64, and 32 pixel variants under ignored private storage. Profile-aware avatar delivery enforces owner, public, and friends-only visibility without exposing storage paths. Public profile output includes an avatar only when the profile visibility rules allow access and the user has explicitly enabled avatar publication.
 
 ## Canonical Media Rule
 

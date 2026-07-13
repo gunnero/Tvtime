@@ -119,8 +119,8 @@ class UserProfileService
                 'fullName' => $user->full_name,
                 'email' => $user->email,
                 'bio' => $user->bio,
-                'avatar' => $user->avatar_path,
-                'avatarVariants' => $this->avatars->urls($user->avatar_variants),
+                'avatar' => $this->ownAvatarUrl($user),
+                'avatarVariants' => $this->avatars->urls($user, $user->avatar_variants),
                 'slug' => $user->profile_slug,
                 'country' => $user->country,
                 'favoriteGenres' => $user->favorite_genres ?? [],
@@ -183,7 +183,7 @@ class UserProfileService
             || ($profileUser->public_profile_enabled && $visibility === ProfileVisibility::Friends && $friend !== null);
 
         $profile = [
-            ...$this->publicIdentity($profileUser),
+            ...$this->publicIdentity($profileUser, $viewer, $asPublic),
             'visibility' => $visibility->value,
             'isPrivate' => ! $contentVisible,
             'contentVisible' => $contentVisible,
@@ -246,7 +246,7 @@ class UserProfileService
             ->limit(20)
             ->get()
             ->map(fn (User $user): array => [
-                ...$this->publicIdentity($user),
+                ...$this->publicIdentity($user, $viewer),
                 'relationship' => $this->relationshipPayload($user, $viewer),
             ])
             ->values()
@@ -254,7 +254,7 @@ class UserProfileService
     }
 
     /** @return array{slug:string,username:string,displayName:string,avatar:?string} */
-    public function publicIdentity(User $user): array
+    public function publicIdentity(User $user, ?User $viewer = null, bool $asPublic = false): array
     {
         $user = $this->ensureProfile($user);
 
@@ -262,8 +262,43 @@ class UserProfileService
             'slug' => (string) $user->profile_slug,
             'username' => (string) $user->username,
             'displayName' => (string) ($user->display_name ?: $user->username),
-            'avatar' => $user->show_avatar ? $user->avatar_path : null,
+            'avatar' => $this->canViewAvatar($user, $viewer, $asPublic)
+                ? $this->avatars->url($user, 512, $asPublic)
+                : null,
         ];
+    }
+
+    public function ownAvatarUrl(User $user, int $size = 512): ?string
+    {
+        return $this->avatars->url($this->ensureProfile($user), $size);
+    }
+
+    public function canViewAvatar(User $profileUser, ?User $viewer = null, bool $asPublic = false): bool
+    {
+        if (! $this->avatars->url($profileUser)) {
+            return false;
+        }
+        if (! $asPublic && $viewer?->id === $profileUser->id) {
+            return true;
+        }
+        if (! $profileUser->public_profile_enabled || ! $profileUser->show_avatar) {
+            return false;
+        }
+        if ($profileUser->profile_visibility === ProfileVisibility::Public) {
+            return true;
+        }
+
+        return ! $asPublic
+            && $profileUser->profile_visibility === ProfileVisibility::Friends
+            && $viewer !== null
+            && $this->acceptedFriendship($profileUser, $viewer) !== null;
+    }
+
+    public function avatarIsPublic(User $user): bool
+    {
+        return $user->public_profile_enabled
+            && $user->show_avatar
+            && $user->profile_visibility === ProfileVisibility::Public;
     }
 
     public function isReservedSlug(string $slug): bool

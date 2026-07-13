@@ -14,7 +14,7 @@ This working tree contains local, uncommitted, and undeployed usability fixes. I
 - Manual movie and episode watches are append-only repeat events. Detail/history payloads preserve every date and expose numbered watch history; manual unwatch removes only the latest manual event.
 - Shows owns a latest-watched-show hero. History, Alerts, Stats, Lists, Discover, and Settings open directly into their page content without the Home hero.
 - Calendar release output is restricted to followed/show episode metadata and watchlist movie releases, includes the user's timezone, and has a friendly empty state. Alerts now distinguish new episodes, upcoming episodes/movies, watchlist releases, and continue-watching reminders.
-- Profile editing adds full name, ISO country selection, and privacy-controlled avatars. The backend decodes and re-encodes JPEG/PNG/WebP uploads, strips embedded metadata, creates 512/128/64/32 square variants, and restricts replacement/deletion to the current user.
+- Profile editing adds full name, ISO country selection, and privacy-controlled avatars. The backend decodes and re-encodes JPEG/PNG/WebP uploads, strips embedded metadata, creates private 512/128/64/32 square variants, and serves them through a profile-aware endpoint that enforces owner/public/friends visibility.
 - Browser identity is MediaHub with an SVG favicon, pinned-tab mark, and manifest.
 - The `mediahub.razbudise.mk` virtual host, certificate, canonical/noindex, deployment-variable, and rollback sequence is prepared in documentation/templates only. No DNS, Apache, certificate, redirect, or deployment change has been made.
 

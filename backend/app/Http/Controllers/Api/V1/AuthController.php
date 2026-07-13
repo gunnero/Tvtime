@@ -55,23 +55,44 @@ class AuthController extends Controller
         return response()->json(null, 204);
     }
 
+    public function session(Request $request, UserProfileService $profiles): JsonResponse
+    {
+        if (! $request->user()) {
+            return response()->json(['authenticated' => false, 'user' => null]);
+        }
+
+        /** @var User $user */
+        $user = $profiles->ensureProfile($request->user());
+
+        return response()->json([
+            'authenticated' => true,
+            'user' => $this->userPayload($user, $profiles),
+        ]);
+    }
+
     public function me(Request $request, UserProfileService $profiles): JsonResponse
     {
         /** @var User $user */
         $user = $profiles->ensureProfile($request->user());
 
         return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role->value,
-                'status' => $user->status->value,
-                'username' => $user->username,
-                'displayName' => $user->display_name,
-                'profileSlug' => $user->profile_slug,
-                'avatar' => $user->avatar_path,
-            ],
+            'user' => $this->userPayload($user, $profiles),
         ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function userPayload(User $user, UserProfileService $profiles): array
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role->value,
+            'status' => $user->status->value,
+            'username' => $user->username,
+            'displayName' => $user->display_name,
+            'profileSlug' => $user->profile_slug,
+            'avatar' => $profiles->ownAvatarUrl($user),
+        ];
     }
 }

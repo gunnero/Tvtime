@@ -34,6 +34,7 @@ class DashboardPayloadService
         $stats = $this->mediaLibrary->statsFor($user);
         $alertsUnread = Alert::forUser($user)->unread()->count();
         $recentlyWatched = $this->recentlyWatched($user);
+        $avatar = $this->profiles->ownAvatarUrl($user);
 
         $this->analytics->record('dashboard.viewed', $user);
 
@@ -48,8 +49,8 @@ class DashboardPayloadService
                 'username' => $user->username,
                 'displayName' => $user->display_name,
                 'slug' => $user->profile_slug,
-                'avatar' => $user->avatar_path ?: null,
-                'image' => $user->avatar_path ?: '',
+                'avatar' => $avatar,
+                'image' => $avatar ?: '',
                 'cover' => '',
             ],
             'source' => [

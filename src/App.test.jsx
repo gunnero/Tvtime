@@ -107,6 +107,7 @@ function jsonResponse(payload, status = 200) {
 function stubAppApi() {
   vi.stubGlobal("fetch", vi.fn(async (input) => {
     const path = typeof input === "string" ? input : input.url;
+    if (path === "/api/v1/auth/session") return jsonResponse({ authenticated: true, user: { name: "Gunner" } });
     if (path === "/api/v1/me") return jsonResponse({ user: { name: "Gunner" } });
     if (path === "/api/v1/dashboard") return jsonResponse(appDashboard);
     if (path === "/api/v1/settings") return jsonResponse({ profile: { name: "Gunner", email: "member@example.test", role: "member" }, metadata: {}, import: {}, export: { csvDatasets: [] }, version: "1.0.0" });
@@ -118,6 +119,25 @@ function stubAppApi() {
     throw new Error(`Unexpected request: ${path}`);
   }));
 }
+
+describe("Guest bootstrap", () => {
+  it("uses the deliberate session probe without requesting a private endpoint or logging an expected 401", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetch = vi.fn(async (input) => {
+      const path = typeof input === "string" ? input : input.url;
+      if (path === "/api/v1/auth/session") return jsonResponse({ authenticated: false, user: null });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/auth/session", expect.any(Object));
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+});
 
 describe("Settings page layout", () => {
   it("keeps the diary as a lazy Home section and removes it entirely from Settings", async () => {

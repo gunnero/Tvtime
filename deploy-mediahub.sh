@@ -289,8 +289,11 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-if [[ ! -L public/storage && ! -e public/storage ]]; then
-  php artisan storage:link
+if [[ -L public/storage ]]; then
+  log "Removing obsolete public storage symlink; avatars use profile-aware delivery"
+  rm public/storage
+elif [[ -e public/storage ]]; then
+  fail "Refusing to replace unexpected public/storage path"
 fi
 
 if php artisan list --raw | grep -q '^filament:assets$'; then

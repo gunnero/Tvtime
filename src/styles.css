@@ -4648,6 +4648,24 @@ img {
   white-space: nowrap;
 }
 
+.share-fallback {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.share-fallback input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
 .invite-history article {
   min-height: 58px;
   border-bottom: 1px solid var(--line);

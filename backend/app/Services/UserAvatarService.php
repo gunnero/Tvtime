@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class UserAvatarService
 {
+    private const DISK = 'local';
+
+    private const LEGACY_DISK = 'public';
+
     private const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
     private const MAX_PIXELS = 40_000_000;
@@ -48,13 +52,13 @@ class UserAvatarService
             foreach (self::SIZES as $size) {
                 $path = $directory.'/'.$baseName.'-'.$size.'.jpg';
                 $encoded = $this->squareJpeg($source, $width, $height, $size);
-                if (! Storage::disk('public')->put($path, $encoded)) {
+                if (! Storage::disk(self::DISK)->put($path, $encoded)) {
                     throw ValidationException::withMessages(['avatar' => 'The avatar could not be stored.']);
                 }
                 $paths[(string) $size] = $path;
             }
         } catch (\Throwable $error) {
-            Storage::disk('public')->delete(array_values($paths));
+            Storage::disk(self::DISK)->delete(array_values($paths));
             throw $error;
         } finally {
             imagedestroy($source);
@@ -62,12 +66,12 @@ class UserAvatarService
 
         $previous = $this->ownedPaths($user);
         $user->forceFill([
-            'avatar_path' => Storage::disk('public')->url($paths['512']),
+            'avatar_path' => $paths['512'],
             'avatar_variants' => $paths,
         ])->save();
-        Storage::disk('public')->delete($previous);
+        $this->deletePaths($previous);
 
-        return $this->urls($paths);
+        return $this->urls($user->refresh(), $paths);
     }
 
     public function remove(User $user): void
@@ -77,21 +81,45 @@ class UserAvatarService
             'avatar_path' => null,
             'avatar_variants' => null,
         ])->save();
-        Storage::disk('public')->delete($paths);
+        $this->deletePaths($paths);
     }
 
     /**
      * @param  array<string, string>|null  $paths
      * @return array<string, string>
      */
-    public function urls(?array $paths): array
+    public function urls(User $user, ?array $paths, bool $asPublic = false): array
     {
         return collect($paths ?? [])
-            ->filter(fn (mixed $path): bool => is_string($path) && $path !== '')
-            ->mapWithKeys(fn (string $path, string|int $size): array => [
-                (string) $size => Storage::disk('public')->url($path),
-            ])
+            ->filter(fn (mixed $path, string|int $size): bool => $this->validPath($user, (int) $size, $path))
+            ->mapWithKeys(fn (string $path, string|int $size): array => [(string) $size => $this->urlFor($user, (int) $size, $path, $asPublic)])
             ->all();
+    }
+
+    public function url(User $user, int $size = 512, bool $asPublic = false): ?string
+    {
+        $path = data_get($user->avatar_variants, (string) $size);
+
+        return $this->validPath($user, $size, $path)
+            ? $this->urlFor($user, $size, $path, $asPublic)
+            : null;
+    }
+
+    /** @return array{disk:string,path:string}|null */
+    public function file(User $user, int $size): ?array
+    {
+        $path = data_get($user->avatar_variants, (string) $size);
+        if (! $this->validPath($user, $size, $path)) {
+            return null;
+        }
+
+        foreach ([self::DISK, self::LEGACY_DISK] as $disk) {
+            if (Storage::disk($disk)->exists($path)) {
+                return ['disk' => $disk, 'path' => $path];
+            }
+        }
+
+        return null;
     }
 
     private function squareJpeg(\GdImage $source, int $width, int $height, int $size): string
@@ -125,6 +153,39 @@ class UserAvatarService
             ->filter(fn (mixed $path): bool => is_string($path) && str_starts_with($path, $prefix))
             ->values()
             ->all();
+    }
+
+    /** @param list<string> $paths */
+    private function deletePaths(array $paths): void
+    {
+        foreach ([self::DISK, self::LEGACY_DISK] as $disk) {
+            Storage::disk($disk)->delete($paths);
+        }
+    }
+
+    private function validPath(User $user, int $size, mixed $path): bool
+    {
+        if (! in_array($size, self::SIZES, true) || ! is_string($path)) {
+            return false;
+        }
+
+        $directory = preg_quote($this->directoryFor($user), '#');
+
+        return preg_match('#^'.$directory.'/[A-Za-z0-9]{40}-'.$size.'\.jpg$#', $path) === 1;
+    }
+
+    private function urlFor(User $user, int $size, string $path, bool $asPublic): string
+    {
+        $parameters = [
+            'user' => $user->profile_slug,
+            'size' => $size,
+            'v' => substr(hash('sha256', $path), 0, 12),
+        ];
+        if ($asPublic) {
+            $parameters['preview'] = 'public';
+        }
+
+        return route('profiles.avatar', $parameters, false);
     }
 
     private function directoryFor(User $user): string

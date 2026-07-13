@@ -79,6 +79,7 @@ Current routes:
 - `GET|PATCH /api/v1/profile`
 - `GET /api/v1/profile/options`
 - `POST|DELETE /api/v1/profile/avatar`
+- `GET /api/v1/profiles/{slug}/avatar/{size}`
 - `PATCH /api/v1/profile/privacy`
 - `GET /api/v1/providers`
 - `POST /api/v1/providers/test`
@@ -171,7 +172,7 @@ Movie and episode watch rows are events, not booleans. A manual watch request al
 
 ## Profile Avatars
 
-`POST /api/v1/profile/avatar` accepts one authenticated multipart `avatar` upload. Validation limits files to 5 MB and decoded JPEG, PNG, or WebP images. `UserAvatarService` rejects oversized pixel dimensions, center-crops and re-encodes the source to strip EXIF/embedded metadata, and creates 512, 128, 64, and 32 pixel JPEG variants with random names on the public disk. Replacement and deletion are restricted to the current user's avatar prefix. `DELETE /api/v1/profile/avatar` removes the variants and restores the generated default avatar behavior.
+`POST /api/v1/profile/avatar` accepts one authenticated multipart `avatar` upload. Validation limits files to 5 MB and decoded JPEG, PNG, or WebP images. `UserAvatarService` rejects oversized pixel dimensions, center-crops and re-encodes the source to strip EXIF/embedded metadata, and creates 512, 128, 64, and 32 pixel JPEG variants with random names on the private disk. Replacement and deletion are restricted to the current user's opaque avatar prefix. `GET /api/v1/profiles/{slug}/avatar/{size}` delivers a thumbnail only when the signed-in owner or the profile visibility policy permits it; direct public-storage delivery is intentionally disabled. `DELETE /api/v1/profile/avatar` removes the variants and restores the generated default avatar behavior.
 
 The public profile allowlist includes an avatar only when the viewer may see the profile and `show_avatar` is enabled. Email, upload paths, storage metadata, and avatar variant maps are never returned by public profile endpoints.
 
