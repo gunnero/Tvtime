@@ -98,6 +98,7 @@ backend/vendor/bin/pint --test
 - [Dependency review](docs/042-mediahub-dependency-review.md)
 - [Main-promotion plan](docs/043-mediahub-main-promotion-plan.md)
 - [Professionalization review](docs/044-github-professionalization-mediahub-review.md)
+- [Deployment and rollback](docs/infrastructure/DEPLOYMENT.md)
 
 ## Security
 
