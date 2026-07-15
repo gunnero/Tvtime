@@ -29,10 +29,17 @@ its remote. It also requires a clean server checkout.
 ```
 
 Preflight verifies SSH, the server checkout, live readiness, Laravel session
-authentication, noindex protection, and baseline security headers. Deployment
-then creates a private backup, fast-forwards the checkout, installs production
-dependencies, runs migrations, rebuilds Laravel caches and frontend assets,
-and reloads Apache only after its configuration passes validation.
+authentication, noindex protection, baseline security headers, required server
+tools, SQLite integrity, a configured `APP_KEY`, and ownership of Git and build
+paths. Deployment then creates a private backup, fast-forwards the checkout,
+installs production dependencies, runs migrations, rebuilds Laravel caches and
+frontend assets, and reloads Apache only after its configuration passes
+validation.
+
+The server should use a current stable Composer release compatible with its PHP
+runtime. `/usr/local/bin` takes precedence over distribution packages, and
+deployment commands use `/tmp` rather than inheriting a privileged account's
+temporary directory.
 
 Frontend synchronization is additive. It copies the Vite index and generated
 assets without deleting Laravel, Filament, Livewire, icons, or other public

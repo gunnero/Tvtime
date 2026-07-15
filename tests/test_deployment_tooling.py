@@ -38,6 +38,15 @@ class DeploymentToolingTest(unittest.TestCase):
         self.assertIn('[[ -f "$PUBLIC_DIR/index.php"', deploy)
         self.assertNotIn("rm -rf", deploy)
 
+    def test_preflight_checks_runtime_and_private_configuration(self):
+        deploy = (ROOT / "deploy-mediahub.sh").read_text()
+        self.assertIn("git runuser php composer npm sqlite3 apachectl systemctl", deploy)
+        self.assertIn("Laravel APP_KEY missing", deploy)
+        self.assertIn("PRAGMA quick_check", deploy)
+        self.assertIn("Git objects are not writable by site user", deploy)
+        self.assertIn("Build path has files not owned by site user", deploy)
+        self.assertIn("TMPDIR=/tmp PATH=/usr/local/bin:/usr/bin:/bin", deploy)
+
     def test_rollback_is_explicit_and_verified(self):
         rollback = (ROOT / "rollback-mediahub.sh").read_text()
         self.assertIn('CONFIRMED="true"', rollback)

@@ -96,12 +96,33 @@ verify_live() {
 
 verify_remote_state() {
   local command
-  command="SERVER_APP_DIR=$(quote "$MEDIAHUB_SERVER_APP_DIR") BRANCH=$(quote "$BRANCH") bash -s"
+  command="SERVER_APP_DIR=$(quote "$MEDIAHUB_SERVER_APP_DIR")"
+  command+=" SERVER_USER=$(quote "$MEDIAHUB_SERVER_USER")"
+  command+=" DB_PATH=$(quote "$SERVER_DB_PATH") BRANCH=$(quote "$BRANCH") bash -s"
   ssh "${SSH_ARGS[@]}" "$MEDIAHUB_SSH_TARGET" "$command" <<'REMOTE_CHECK'
 set -Eeuo pipefail
+for tool in git runuser php composer npm sqlite3 apachectl systemctl; do
+  command -v "$tool" >/dev/null || { echo "Missing server tool: $tool" >&2; exit 1; }
+done
 [[ -d "$SERVER_APP_DIR/.git" ]] || { echo 'Server checkout missing' >&2; exit 1; }
 [[ "$(git -C "$SERVER_APP_DIR" rev-parse --abbrev-ref HEAD)" == "$BRANCH" ]] || { echo 'Server branch mismatch' >&2; exit 1; }
 [[ -z "$(git -C "$SERVER_APP_DIR" status --porcelain)" ]] || { echo 'Server checkout is dirty' >&2; exit 1; }
+site_home="$(getent passwd "$SERVER_USER" | cut -d: -f6)"
+[[ -n "$site_home" ]] || { echo 'Server user does not exist' >&2; exit 1; }
+run_as_site() { runuser -u "$SERVER_USER" -- env HOME="$site_home" TMPDIR=/tmp PATH=/usr/local/bin:/usr/bin:/bin "$@"; }
+run_as_site test -w "$SERVER_APP_DIR" || { echo 'Server checkout is not writable by site user' >&2; exit 1; }
+run_as_site test -w "$SERVER_APP_DIR/.git/objects" || { echo 'Git objects are not writable by site user' >&2; exit 1; }
+[[ -s "$SERVER_APP_DIR/backend/.env" ]] || { echo 'Laravel environment file missing' >&2; exit 1; }
+run_as_site grep -Eq '^APP_KEY=(base64:)?[^[:space:]]+' "$SERVER_APP_DIR/backend/.env" || { echo 'Laravel APP_KEY missing' >&2; exit 1; }
+if [[ -f "$DB_PATH" ]]; then
+  [[ "$(sqlite3 "$DB_PATH" 'PRAGMA quick_check;')" == 'ok' ]] || { echo 'SQLite quick check failed' >&2; exit 1; }
+fi
+for path in "$SERVER_APP_DIR/.git" "$SERVER_APP_DIR/node_modules" "$SERVER_APP_DIR/backend/vendor"; do
+  [[ ! -e "$path" ]] || ! find "$path" ! -user "$SERVER_USER" -print -quit | grep -q . || {
+    echo "Build path has files not owned by site user: ${path#$SERVER_APP_DIR/}" >&2
+    exit 1
+  }
+done
 REMOTE_CHECK
   log "Server checkout verified"
 }
@@ -125,7 +146,7 @@ fail() { printf '[mediahub remote] ERROR: %s\n' "$*" >&2; exit 1; }
 
 site_home="$(getent passwd "$SERVER_USER" | cut -d: -f6)"
 [[ -n "$site_home" ]] || fail "Server user does not exist"
-run_as_site() { runuser -u "$SERVER_USER" -- env HOME="$site_home" "$@"; }
+run_as_site() { runuser -u "$SERVER_USER" -- env HOME="$site_home" TMPDIR=/tmp PATH=/usr/local/bin:/usr/bin:/bin "$@"; }
 run_in_dir() {
   local directory="$1"
   shift
