@@ -22,5 +22,6 @@ gdpr-data.zip
 qa/
 design-qa.md
 .DS_Store
+.mediahub-deploy.env
 __pycache__/
 *.pyc
