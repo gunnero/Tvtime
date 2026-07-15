@@ -36,7 +36,7 @@ describe("MediaHub Web V1 surfaces", () => {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
     fireEvent.click(screen.getByRole("tab", { name: "Upcoming" }));
-    await waitFor(() => expect(apiClient).toHaveBeenCalledWith(expect.stringContaining("category=upcoming")));
+    await waitFor(() => expect(apiClient).toHaveBeenCalledWith(expect.stringContaining("category=upcoming"), expect.objectContaining({ signal: expect.any(AbortSignal) })));
   });
 
   it("renders the release calendar and opens an episode", async () => {

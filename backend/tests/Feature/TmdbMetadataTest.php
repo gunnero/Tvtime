@@ -63,6 +63,38 @@ class TmdbMetadataTest extends TestCase
         $this->assertSame(949, $result['results'][0]['id']);
     }
 
+    public function test_tmdb_multi_search_uses_safe_cache_key(): void
+    {
+        Config::set('cache.default', 'database');
+        Config::set('tmdb.enabled', true);
+        Config::set('tmdb.api_key', 'test-key');
+        Config::set('tmdb.cache_store', 'file');
+        Config::set('tmdb.cache_ttl', 86400);
+
+        $cache = Mockery::mock(Repository::class);
+        $cache->shouldReceive('remember')
+            ->once()
+            ->with(
+                Mockery::on(fn (string $key): bool => str_starts_with($key, 'tmdb:')
+                    && ! str_contains($key, 'test-key')
+                    && ! str_contains($key, 'Severance')),
+                86400,
+                Mockery::type(Closure::class),
+            )
+            ->andReturnUsing(fn (string $key, int $ttl, Closure $callback): mixed => $callback());
+        Cache::shouldReceive('store')->once()->with('file')->andReturn($cache);
+
+        Http::fake([
+            'api.themoviedb.org/3/search/multi*' => Http::response([
+                'results' => [['id' => 95396, 'media_type' => 'tv', 'name' => 'Severance']],
+            ]),
+        ]);
+
+        $result = app(TMDBClientService::class)->searchMulti('Severance');
+
+        $this->assertSame(95396, $result['results'][0]['id']);
+    }
+
     public function test_tmdb_disabled_does_not_enrich_movie_or_fail(): void
     {
         Config::set('tmdb.enabled', false);

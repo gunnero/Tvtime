@@ -74,6 +74,7 @@ export function DiscoverSection({ apiClient = apiRequest, initialType = "all", n
       setState({ loading: false, error: "", items: [] });
       return undefined;
     }
+    const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setState((current) => ({ ...current, loading: true, error: "" }));
       try {
@@ -82,7 +83,7 @@ export function DiscoverSection({ apiClient = apiRequest, initialType = "all", n
             ? `/api/v1/discover/search?${encodeQuery({ query: safeQuery, type, page: 1 })}`
             : `/api/v1/discover/browse?${encodeQuery({ category, type, page: 1 })}`
           : `/api/v1/library/search?${encodeQuery({ query: safeQuery, type, limit: 30 })}`;
-        const payload = await apiClient(endpoint);
+        const payload = await apiClient(endpoint, { signal: controller.signal });
         const items = mode === "discover" ? payload.items || [] : [
           ...(payload.movies || []),
           ...(payload.shows || []),
@@ -90,11 +91,15 @@ export function DiscoverSection({ apiClient = apiRequest, initialType = "all", n
         ];
         setState({ loading: false, error: payload.status === "disabled" ? "Discovery is unavailable until TMDB is enabled." : "", items });
       } catch (error) {
+        if (error?.name === "AbortError") return;
         if (error instanceof SessionExpiredError) onSessionExpired?.();
         else setState({ loading: false, error: error.message || "Search is temporarily unavailable.", items: [] });
       }
     }, 350);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [apiClient, category, mode, onSessionExpired, query, type]);
 
   async function add(item, action) {
