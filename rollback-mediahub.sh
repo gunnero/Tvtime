@@ -82,7 +82,7 @@ IFS=$'\n\t'
 fail() { printf '[mediahub rollback remote] ERROR: %s\n' "$*" >&2; exit 1; }
 site_home="$(getent passwd "$SERVER_USER" | cut -d: -f6)"
 [[ -n "$site_home" ]] || fail "Server user does not exist"
-run_as_site() { runuser -u "$SERVER_USER" -- env HOME="$site_home" "$@"; }
+run_as_site() { runuser -u "$SERVER_USER" -- env HOME="$site_home" TMPDIR=/tmp PATH=/usr/local/bin:/usr/bin:/bin "$@"; }
 run_in_dir() {
   local directory="$1"
   shift
