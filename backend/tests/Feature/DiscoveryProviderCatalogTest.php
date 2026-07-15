@@ -31,6 +31,8 @@ class DiscoveryProviderCatalogTest extends TestCase
         Cache::flush();
         Config::set('tmdb.enabled', true);
         Config::set('tmdb.api_key', 'tmdb-test-key');
+        Config::set('tmdb.cache_store', 'file');
+        Cache::store('file')->flush();
         Config::set('mediahub_providers.sync_limit', 100);
         Config::set('mediahub_providers.series_detail_limit', 0);
     }
@@ -40,13 +42,13 @@ class DiscoveryProviderCatalogTest extends TestCase
         $user = $this->member();
         $movie = Movie::create(['user_id' => $user->id, 'title' => 'Heat', 'tmdb_id' => 949]);
         Http::fake([
-            'api.themoviedb.org/3/search/movie*' => Http::response([
-                'page' => 1, 'total_pages' => 1, 'total_results' => 1,
-                'results' => [['id' => 949, 'title' => 'Heat', 'original_title' => 'Heat', 'release_date' => '1995-12-15', 'poster_path' => '/heat.jpg', 'backdrop_path' => '/heat-bg.jpg', 'overview' => 'Crime saga.', 'genre_ids' => [80, 18]]],
-            ]),
-            'api.themoviedb.org/3/search/tv*' => Http::response([
-                'page' => 1, 'total_pages' => 1, 'total_results' => 1,
-                'results' => [['id' => 95396, 'name' => 'Severance', 'original_name' => 'Severance', 'first_air_date' => '2022-02-18', 'poster_path' => '/severance.jpg', 'overview' => 'Work-life separation.', 'genre_ids' => [18, 9648]]],
+            'api.themoviedb.org/3/search/multi*' => Http::response([
+                'page' => 1, 'total_pages' => 1, 'total_results' => 2,
+                'results' => [
+                    ['id' => 949, 'media_type' => 'movie', 'title' => 'Heat', 'original_title' => 'Heat', 'release_date' => '1995-12-15', 'poster_path' => '/heat.jpg', 'backdrop_path' => '/heat-bg.jpg', 'overview' => 'Crime saga.', 'genre_ids' => [80, 18]],
+                    ['id' => 95396, 'media_type' => 'tv', 'name' => 'Severance', 'original_name' => 'Severance', 'first_air_date' => '2022-02-18', 'poster_path' => '/severance.jpg', 'overview' => 'Work-life separation.', 'genre_ids' => [18, 9648]],
+                    ['id' => 101, 'media_type' => 'person', 'name' => 'Ignored Person'],
+                ],
             ]),
         ]);
 
@@ -60,6 +62,9 @@ class DiscoveryProviderCatalogTest extends TestCase
             ->assertJsonPath('items.1.media_type', 'show')
             ->assertJsonPath('items.1.already_in_library', false)
             ->assertJsonPath('items.1.genres.0', 'Drama');
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/search/multi'));
     }
 
     public function test_discovery_browse_returns_bounded_public_categories_and_same_user_library_state(): void

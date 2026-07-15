@@ -42,6 +42,10 @@ class DiscoveryService
             return $this->emptySearch('disabled', $page);
         }
 
+        if ($type === 'all') {
+            return $this->searchAll($user, $query, $page, $year);
+        }
+
         $movies = in_array($type, ['movie', 'all'], true)
             ? $this->tmdb->searchMovie($query, $year, $page)
             : ['results' => [], 'page' => $page, 'total_pages' => 0, 'total_results' => 0];
@@ -72,6 +76,44 @@ class DiscoveryService
                 'page' => $page,
                 'totalPages' => max((int) ($movies['total_pages'] ?? 0), (int) ($shows['total_pages'] ?? 0)),
                 'totalResults' => (int) ($movies['total_results'] ?? 0) + (int) ($shows['total_results'] ?? 0),
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function searchAll(User $user, string $query, int $page, ?int $year): array
+    {
+        $results = $this->tmdb->searchMulti($query, $year, $page);
+
+        if ($results === null) {
+            return $this->emptySearch('unavailable', $page);
+        }
+
+        $rows = collect($results['results'] ?? [])
+            ->filter(fn (mixed $row): bool => is_array($row) && in_array($row['media_type'] ?? null, ['movie', 'tv'], true))
+            ->values();
+        $movieRows = $rows->filter(fn (array $row): bool => ($row['media_type'] ?? null) === 'movie')->values();
+        $showRows = $rows->filter(fn (array $row): bool => ($row['media_type'] ?? null) === 'tv')->values();
+        $movieIds = $movieRows->pluck('id')->filter()->map(fn (mixed $id): int => (int) $id)->all();
+        $showIds = $showRows->pluck('id')->filter()->map(fn (mixed $id): int => (int) $id)->all();
+        $existingMovies = Movie::forUser($user)->whereIn('tmdb_id', $movieIds)->get()->keyBy('tmdb_id');
+        $existingShows = Show::forUser($user)->whereIn('tmdb_id', $showIds)->get()->keyBy('tmdb_id');
+
+        $items = $rows
+            ->map(fn (array $row): array => ($row['media_type'] ?? null) === 'movie'
+                ? $this->searchResult($row, 'movie', $existingMovies->get((int) ($row['id'] ?? 0)))
+                : $this->searchResult($row, 'show', $existingShows->get((int) ($row['id'] ?? 0))))
+            ->all();
+
+        return [
+            'status' => 'ready',
+            'items' => $items,
+            'pagination' => [
+                'page' => $page,
+                'totalPages' => (int) ($results['total_pages'] ?? 0),
+                'totalResults' => (int) ($results['total_results'] ?? 0),
             ],
         ];
     }

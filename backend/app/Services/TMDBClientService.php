@@ -58,6 +58,20 @@ class TMDBClientService
     /**
      * @return array<string, mixed>|null
      */
+    public function searchMulti(string $title, ?int $year = null, int $page = 1): ?array
+    {
+        return $this->get('/search/multi', array_filter([
+            'query' => $title,
+            'year' => $year,
+            'include_adult' => false,
+            'language' => 'en-US',
+            'page' => max(1, $page),
+        ], fn (mixed $value): bool => $value !== null && $value !== ''));
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     public function browse(string $category, string $type, int $page = 1): ?array
     {
         $paths = [
